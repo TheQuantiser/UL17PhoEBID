@@ -1,0 +1,10 @@
+*.log
+*.xz
+*.d
+*.pcm
+*.pyc
+*.pkl
+*.so
+*.*tmp*
+*.root
+*tarball*

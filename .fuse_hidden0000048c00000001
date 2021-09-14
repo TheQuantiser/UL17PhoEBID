@@ -1,0 +1,2088 @@
+//////////////////////////////////////////////////////////////////////
+//  Mohammad Abrar Wadud, Univeristy of Minnesota               //
+//  August/04/2020                                                //
+//  Photon ID Study                           //
+//////////////////////////////////////////////////////////////////////
+
+#include "/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/macros/extra_tools.cc"
+
+R__ADD_INCLUDE_PATH(/local/cms/user/wadud/aNTGCmet/xgboost/include/xgboost/)
+R__LOAD_LIBRARY(/local/cms/user/wadud/aNTGCmet/xgboost/lib/libxgboost.so)
+#include </local/cms/user/wadud/aNTGCmet/xgboost/include/xgboost/c_api.h>
+
+
+#ifndef GENPHOFINDERPOSTTRAINING
+#define GENPHOFINDERPOSTTRAINING
+
+// Barrel-Endcap transition region
+#define BETRetaMin 1.4442
+#define BETRetaMax 1.566
+#define HBetaMax 1.3920                     //// ref. Josh H.
+#define ZMASS 91.1876
+#define pi7 3.1415927
+#define REPORT_EVERY 100000
+#define CUTFLOWSTEPS 50
+
+
+const Double_t ECAL_ETA_BINS[57] = { -5., -3., -2.9, -2.7, -2.5, -2.4, -2.3, -2.2, -2.1, -2., -1.9, -1.8, -1.7, -BETRetaMax, -BETRetaMin, -1.3, -1.2, -1.1, -1., -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1,  0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1., 1.1, 1.2, 1.3, BETRetaMin, BETRetaMax, 1.7, 1.8, 1.9, 2., 2.1, 2.2, 2.3, 2.4, 2.5, 2.7, 2.9, 3., 5.};
+const Double_t ECAL_ABS_ETA_BINS[13] = { 0., 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, BETRetaMin, BETRetaMax, 1.8, 2.0, 2.2, 2.5};
+const Double_t ECAL_EB_ETA_BINS[57] = { -BETRetaMin, -1.35, -1.3, -1.25, -1.2, -1.15, -1.1, -1.05, -1., -0.95, -0.9, -0.85, -0.8, -0.75, -0.7, -0.65, -0.6, -0.55, -0.5, -0.45, -0.4, -0.35, -0.3, -0.25, -0.2, -0.15, -0.1, -0.05, 0., 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1., 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.35, BETRetaMin};
+const Double_t ECAL_FINE_ETA_BINS[85] = { -5., -3., -2.9, -2.7, -2.5, -2.4, -2.3, -2.2, -2.1, -2., -1.9, -1.8, -1.7, -BETRetaMax, -BETRetaMin, -1.35, -1.3, -1.25, -1.2, -1.15, -1.1, -1.05, -1., -0.95, -0.9, -0.85, -0.8, -0.75, -0.7, -0.65, -0.6, -0.55, -0.5, -0.45, -0.4, -0.35, -0.3, -0.25, -0.2, -0.15, -0.1, -0.05, 0., 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1., 1.05, 1.1, 1.15, 1.2, 1.25, 1.3, 1.35, BETRetaMin, BETRetaMax, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.7, 2.9, 3., 5.};
+const Double_t ECAL_EB_ABS_ETA_BINS[8] = {0., 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, BETRetaMin};
+
+
+////////////////////////////////////////////////// Container for categories //////////////////////////////////////////////////////////////////////////////////////
+struct eventType {
+  TTree *                             tree = nullptr;
+
+  //// Cut efficiency tracking
+  Float_t                             lastCutStep = 0.;
+  TH1F *                              cutFlowCount = nullptr;
+  TH1F *                              cutFlowGenWeight = nullptr;
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+class genPhoFinderPostTraining {
+ public:
+  genPhoFinderPostTraining(std::string FILELIST,
+                           std::string OUTFILE,
+                           Float_t XSECTION = -1.,
+                           std::string MCPILEUPHIST = "",
+                           std::string DATAPILEUPHIST = "/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/data/pileupUL18/pileup_2018_data.root",
+
+                           std::string PFECALCLUS_PUCORRECTIONS = "/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/phoIDstudy/UL17/cutOptimization/wIsoCorr/v12/EB/it_11/phoPFClusEcalIso_RhoCorrections, 2",
+                           std::string PFHCALCLUS_PUCORRECTIONS = "/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/phoIDstudy/UL17/cutOptimization/wIsoCorr/v12/EB/it_11/phoPFClusHcalIso__RhoCorrections, 2",
+                           std::string TKRISO_PUCORRECTIONS = "/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/phoIDstudy/UL17/cutOptimization/wIsoCorr/v12/EB/it_11/phoTrkSumPtHollowConeDR03_RhoCorrections, 2",
+                           std::string PFECALCLUS_PTSCALING = "/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/phoIDstudy/UL17/cutOptimization/wIsoCorr/v12/EB/it_11/phoPFClusEcalIso_PtCorrections.txt, 2",
+                           std::string PFHCALCLUS_PTSCALING = "/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/phoIDstudy/UL17/cutOptimization/wIsoCorr/v12/EB/it_11/phoPFClusHcalIso_PtCorrections.txt, 2",
+
+                           // std::string EB_BDT_PATH = "/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/phoIDstudy/UL17/BDT/training/tuning/v5/EB/aNTGC_photon_BDT_EB_2021_08_19_07_34_28.model",
+                           std::string EB_BDT_PATH = "/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/phoIDstudy/UL17/BDT/training/tuning/v6/EB/aNTGC_photon_BDT_EB_2021_08_26_09_39_52.model",
+                           std::string EE_BDT_PATH = "/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/phoIDstudy/UL17/BDT/training/tuning/v5/EE/aNTGC_photon_BDT_EE_2021_08_19_07_51_23.model",
+
+                           std::string PIXEL_VETO_SF_PATH = "/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/data/scaleFactors/UL/pixel_seed_veto/HasPix_SummaryPlot_UL18.root, LooseID/SF_HasPix_LooseID",
+
+                           std::string ELE_SF_PATH_CAND="/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/data/scaleFactors/UL/electrons/EGM2D_Tight_UL17.root,EGamma_SF2D",
+                           std::string ELE_SF_PATH_VETO="/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/data/scaleFactors/UL/electrons/2018_ElectronLoose.root,EGamma_SF2D",
+                           std::string ELE_VETO_ID_EFF_MC="/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/data/scaleFactors/UL/electrons/2018_ElectronLoose.root,EGamma_EffMC2D",
+
+                           std::string MU_ID_SF_PATH_CAND="/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/data/scaleFactors/UL/muons/Efficiencies_muon_generalTracks_Z_Run2018_UL_ID.root, NUM_TightID_DEN_TrackerMuons_abseta_pt",
+                           std::string MU_ISO_SF_PATH_CAND="/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/data/scaleFactors/UL/muons/Efficiencies_muon_generalTracks_Z_Run2018_UL_ISO.root, NUM_TightRelTkIso_DEN_TrkHighPtIDandIPCut_abseta_pt",
+                           std::string MU_ID_EFF_PATH_VETO_MC="/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/data/scaleFactors/UL/muons/Efficiencies_muon_generalTracks_Z_Run2018_UL_ID.root, NUM_LooseID_DEN_TrackerMuons_abseta_pt_efficiencyMC",
+                           std::string MU_ISO_EFF_PATH_VETO_MC="/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/data/scaleFactors/UL/muons/Efficiencies_muon_generalTracks_Z_Run2018_UL_ISO.root, NUM_LooseRelIso_DEN_TightIDandIPCut_abseta_pt_efficiencyMC",
+                           std::string MU_ID_SF_PATH_VETO="/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/data/scaleFactors/UL/muons/Efficiencies_muon_generalTracks_Z_Run2018_UL_ID.root, NUM_LooseID_DEN_TrackerMuons_abseta_pt",
+                           std::string MU_ISO_SF_PATH_VETO="/local/cms/user/wadud/aNTGCmet/aNTGC_analysis/data/scaleFactors/UL/muons/Efficiencies_muon_generalTracks_Z_Run2018_UL_ISO.root, NUM_LooseRelIso_DEN_TightIDandIPCut_abseta_pt");
+
+  ~genPhoFinderPostTraining() {
+    XGBoosterFree(phoBDT_EB_h);
+    XGBoosterFree(phoBDT_EE_h);
+    std::cout << "END @ " << getCurrentTime() << std::endl;
+    std::cout << "*************************************************************************************************************************************************" << std::endl;
+  };
+
+ private:
+
+  Bool_t              isMC = false;
+  Bool_t              doPUreweight = false;
+  Float_t             xSec = -1.;
+
+  isoCorrMap                ecalIsoRhoCorrMap;
+  isoCorrMap                hcalIsoRhoCorrMap;
+  isoCorrMap                tkrIsoRhoCorrMap;
+
+  isoCorrMap                ecalIsoPtCorrMap;
+  isoCorrMap                hcalIsoPtCorrMap;
+
+  scaleFactor1D     pixelVetoSF;
+
+  etaPtScaleFactor2D  muonCandIdSF;
+  etaPtScaleFactor2D  muonCandIsoSF;
+
+  etaPtScaleFactor2D  muonVetoIdSF;
+  etaPtScaleFactor2D  muonVetoIsoSF;
+
+  etaPtScaleFactor2D  muonVetoIdMCeff;
+  etaPtScaleFactor2D  muonVetoIsoMCeff;
+
+  etaPtScaleFactor2D  eleCandSF;
+  etaPtScaleFactor2D  eleVetoSF;
+  etaPtScaleFactor2D  eleVetoIDEffMC;
+
+  void    analyze();
+  Bool_t  selectEvent();
+
+  Short_t nearestFinalGen(Short_t  _phoIndex, Float_t _deltaRmax);
+  Short_t nearestFinalGen(Float_t  _eta,      Float_t _phi,        Float_t _deltaRmax, Bool_t _matchPDGid, Int_t _pdgID, Bool_t _absPID);
+  Short_t photonIsTrue(Short_t _phoIndex, Float_t _deltaRmax, Float_t _relDeltaPtMin, Float_t _relDeltaPtMax);
+  Short_t photonIsPrompt(Short_t   _phoIndex, Float_t _deltaRmax,  Float_t _relDeltaPtMin, Float_t _relDeltaPtMax);
+  Bool_t  photonIsFake(Short_t     _phoIndex, Float_t _deltaRmax   =       0.3);
+  Short_t matchWithRecoPho(Short_t _genIndex, Float_t _deltaRmax,  Float_t _relDeltaPtMin, Float_t _relDeltaPtMax);
+  Short_t matchWithTrigPho(Short_t _phoIndex, Float_t _deltaRmax,  Float_t _relDeltaPtMin, Float_t _relDeltaPtMax);
+  Float_t getPhoBDTScore(Short_t   iPho);
+
+  TFile *             outFile = nullptr;
+
+  /////////////////////////////////////////// Pileup Reweighting /////////////////////////////////////////////////////////
+  PileupReWeighting   puReweighter;
+  TH1F                pileupPreweight{"pileupUnweighted", "Unweighted Pileup; True # of Interactions", 200, 0., 200.};
+  TH1F                pileupPostweight{"pileupWeighted", "Weighted Pileup; True # of Interactions", 200, 0., 200.};
+  TH1F                rhoPreweight{"rhoUnweighted", "Unweighted #rho; #rho", 200, 0., 200.};
+  TH1F                rhoPostweight{"rhoWeighted", "Weighted #rho; #rho", 200, 0., 200.};
+  TH1F                nvtxPreweight{"nvtxUnweighted", "Unweighted # of Vertices; # of Vertices", 200, 0., 200.};
+  TH1F                nvtxPostweight{"nvtxWeighted", "Weighted # of Vertices; # of Vertices", 200, 0., 200.};
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+  //////////////////////////////////////////////// Input TTree ///////////////////////////////////////////////////////////
+  Bool_t                                  initNtuples(std::string FILELIST);
+  TTreeReader                             inputTTreeReader;
+  TChain *                                inputTree = nullptr;
+
+  TTreeReaderAnyValue<Int_t>                  _run;
+  TTreeReaderAnyValue<Long64_t>               _event;
+  TTreeReaderAnyValue<UShort_t>               _lumis;
+  TTreeReaderAnyValue<UChar_t>                _nVtx;
+  TTreeReaderAnyValue<Float_t>                _rho;
+  TTreeReaderAnyValue<ULong64_t>              _HLTPho;
+  TTreeReaderAnyValue<UShort_t>               _beamHaloSummary;
+  TTreeReaderAnyValue<UShort_t>               _metFilters;
+
+  TTreeReaderAnyValue<UChar_t>                _puTrue;
+  TTreeReaderAnyValue<Float_t>                _genWeight;
+  TTreeReaderAnyValue<UShort_t>               _nMC;
+  TTreeReaderVectorValue<Int_t>               _mcPID;
+  TTreeReaderVectorValue<Float_t>             _mcPt;
+  TTreeReaderVectorValue<Float_t>             _mcEta;
+  TTreeReaderVectorValue<Float_t>             _mcPhi;
+  TTreeReaderVectorValue<UShort_t>            _mcStatusFlag;
+  TTreeReaderVectorValue<Short_t>             _mcStatus;
+  TTreeReaderVectorValue<Short_t>             _mcIndex;
+  TTreeReaderVectorValue<Char_t>              _mcPromptStatusType;
+
+  TTreeReaderVectorValue<Int_t>               _lhePID;
+  TTreeReaderVectorValue<Float_t>             _lhePt;
+  TTreeReaderVectorValue<Short_t>             _lheStatus;
+  TTreeReaderAnyValue<Float_t>                _genMET;
+  TTreeReaderAnyValue<Float_t>                _genMETPhi;
+
+  TTreeReaderAnyValue<UShort_t>               _nPho;
+  TTreeReaderVectorValue<Short_t>             _pho_gen_index;
+  TTreeReaderVectorValue<Float_t>             _phoCalibEt;
+  TTreeReaderVectorValue<Float_t>             _phoEt;
+  TTreeReaderVectorValue<Float_t>             _phoEta;
+  TTreeReaderVectorValue<Float_t>             _phoPhi;
+  TTreeReaderVectorValue<Float_t>             _phoSeedTime;
+  TTreeReaderVectorValue<UChar_t>             _phoFiducialRegion;
+
+  TTreeReaderVectorValue<UChar_t>             _phoQualityBits;
+  TTreeReaderVectorValue<Float_t>             _phoR9Full5x5;
+  TTreeReaderVectorValue<Float_t>             _phoSigmaIEtaIEtaFull5x5;
+  TTreeReaderVectorValue<Float_t>             _phoSigmaIEtaIPhiFull5x5;
+  TTreeReaderVectorValue<Float_t>             _phoSigmaIPhiIPhiFull5x5;
+  TTreeReaderVectorValue<Float_t>             _phoE2x2Full5x5;
+  TTreeReaderVectorValue<Float_t>             _phoE5x5Full5x5;
+
+  TTreeReaderVectorValue<Float_t>             _phoMaxEnergyXtal;
+  TTreeReaderVectorValue<Float_t>             _phoE2ndFull5x5;
+  TTreeReaderVectorValue<Float_t>             _phoE1x3Full5x5;
+  TTreeReaderVectorValue<Float_t>             _phoE1x5Full5x5;
+  TTreeReaderVectorValue<Float_t>             _phoE2x5Full5x5;
+  TTreeReaderVectorValue<Float_t>             _phoESEffSigmaRR;
+
+
+
+  TTreeReaderVectorValue<Float_t>             _phoPFClusEcalIso;
+  TTreeReaderVectorValue<Float_t>             _phoPFClusHcalIso;
+  TTreeReaderVectorValue<Float_t>             _phoTrkSumPtSolidConeDR04;
+  TTreeReaderVectorValue<Float_t>             _phoTrkSumPtHollowConeDR04;
+  TTreeReaderVectorValue<Float_t>             _phoTrkSumPtSolidConeDR03;
+  TTreeReaderVectorValue<Float_t>             _phoTrkSumPtHollowConeDR03;
+  TTreeReaderVectorValue<Float_t>             _phoECALIso;
+  TTreeReaderVectorValue<Float_t>             _phoHCALIso;
+
+  TTreeReaderVectorValue<Float_t>             _phoHoverE;
+  TTreeReaderVectorValue<Float_t>             _phoPFChIso;
+  TTreeReaderVectorValue<Float_t>             _phoPFPhoIso;
+  TTreeReaderVectorValue<Float_t>             _phoPFNeuIso;
+  TTreeReaderVectorValue<Float_t>             _phoPFChWorstIso;
+  TTreeReaderVectorValue<Float_t>             _phoIDMVA;
+  TTreeReaderVectorValue<UChar_t>             _phoIDbit;
+  TTreeReaderVectorValue<Float_t>             _phoMIPTotEnergy;
+
+  TTreeReaderVectorValue<Short_t>             _phoDirectEcalSCindex;
+  TTreeReaderVectorValue<Float_t>             _ecalSC_eta;
+  TTreeReaderVectorValue<Float_t>             _ecalSC_phi;
+  TTreeReaderVectorValue<Float_t>             _ecalSC_En;
+  TTreeReaderVectorValue<Float_t>             _ecalSC_RawEn;
+  TTreeReaderVectorValue<Float_t>             _ecalSC_etaWidth;
+  TTreeReaderVectorValue<Float_t>             _ecalSC_phiWidth;
+
+  TTreeReaderAnyValue<Float_t>                _pfMET;
+  TTreeReaderAnyValue<Float_t>                _pfMETPhi;
+  TTreeReaderAnyValue<Float_t>                _pfMET_metSig;
+  TTreeReaderAnyValue<Float_t>                _pfMET_EtSig;
+
+
+  TTreeReaderAnyValue<Float_t>                _puppiMET;
+  TTreeReaderAnyValue<Float_t>                _puppiMETPhi;
+  TTreeReaderAnyValue<Float_t>                _puppiMET_metSig;
+  TTreeReaderAnyValue<Float_t>                _puppiMET_EtSig;
+
+  TTreeReaderAnyValue<UShort_t>               _nEle;
+  TTreeReaderVectorValue<Float_t>             _eleCalibPt;
+  TTreeReaderVectorValue<Float_t>             _elePt;
+  TTreeReaderVectorValue<Float_t>             _eleEta;
+  TTreeReaderVectorValue<Float_t>             _elePhi;
+  TTreeReaderVectorValue<UInt_t>              _eleIDbit;
+  TTreeReaderVectorValue<UShort_t>            _eleQualityBits;
+  TTreeReaderVectorValue<Float_t>             _eleIDMVAIso;
+  TTreeReaderVectorValue<Short_t>             _eleDirectEcalSCindex;
+
+
+  TTreeReaderAnyValue<UShort_t>               _nMu;
+  TTreeReaderVectorValue<Float_t>             _muEta;
+  TTreeReaderVectorValue<Float_t>             _muPhi;
+  TTreeReaderVectorValue<Float_t>             _muPt;
+  TTreeReaderVectorValue<Int_t>               _muIDbit;
+
+  TTreeReaderAnyValue<UShort_t>               _nTau;
+  TTreeReaderVectorValue<Float_t>             _tauPt;
+  TTreeReaderVectorValue<Float_t>             _tauEta;
+  TTreeReaderVectorValue<UInt_t>              _tauIDbitsDeepTau2017v2p1;
+  TTreeReaderVectorValue<std::vector<Char_t>> _tauDMs;
+
+  TTreeReaderAnyValue<UShort_t>               _nAK4CHSJet;
+  TTreeReaderVectorValue<Float_t>             _AK4CHSJet_Pt;
+  TTreeReaderVectorValue<Float_t>             _AK4CHSJet_Eta;
+  TTreeReaderVectorValue<Float_t>             _AK4CHSJet_Phi;
+  TTreeReaderVectorValue<Char_t>              _AK4CHSJet_PUFullID;
+  TTreeReaderVectorValue<Char_t>              _AK4CHSJet_ID;
+
+
+  TTreeReaderAnyValue<UShort_t>               _nAK4PUPPIJet;
+  TTreeReaderVectorValue<Float_t>             _AK4PUPPIJet_Pt;
+  TTreeReaderVectorValue<Float_t>             _AK4PUPPIJet_Eta;
+  TTreeReaderVectorValue<Float_t>             _AK4PUPPIJet_Phi;
+  TTreeReaderVectorValue<Char_t>              _AK4PUPPIJet_ID;
+
+
+  TTreeReaderAnyValue<UChar_t>                _ntrgObjPho;
+  TTreeReaderVectorValue<UInt_t>              _trgObjPhoBits1;
+  TTreeReaderVectorValue<UInt_t>              _trgObjPhoBits2;
+  TTreeReaderVectorValue<UInt_t>              _trgObjPhoBits3;
+  TTreeReaderVectorValue<UInt_t>              _trgObjPhoBits4;
+  TTreeReaderVectorValue<Float_t>             _trgObjPhoPt;
+  TTreeReaderVectorValue<Float_t>             _trgObjPhoEta;
+  TTreeReaderVectorValue<Float_t>             _trgObjPhoPhi;
+
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+  //////////////////////////////////////////// Output variables //////////////////////////////////////////////////////////
+  Char_t              fillVars(const Short_t _phoIndex);
+
+  Int_t    run_;
+  Long64_t event_;
+  UShort_t lumis_;
+  Float_t  rho_;
+  UChar_t  nVtx_;
+
+  UShort_t metFilters_;
+  UShort_t beamHaloSummary_;
+
+  Float_t  genWeight_           = 1.;
+  UChar_t  puTrue_              = 0;
+  Float_t  puWeight_            = 1.;
+  UShort_t genStatusFlag_       = 0;
+  Short_t  genStatus_           = -1;
+  Float_t  deltaRgenPho_        = -999;
+  Float_t  relDeltaPtGenPho_    = -999;
+  Float_t  deltaRPt_            = -999;
+  Int_t    genPDGid_            = 0;
+  Char_t   genPromptStatusType_ = 0;
+  Float_t  lhePhoPt_            = -999;
+  Char_t   Wsign_               = 0;
+  Char_t   lepSign_             = 0;
+  UChar_t  phoGenBits_          = 0;
+
+  Bool_t   isEBevent_;
+  Bool_t   hasElectron_;
+  Bool_t   hasMuon_;
+  Bool_t   hasLep_;
+
+  Float_t  nPhoCand_;
+  Float_t  phoPt_;
+  Float_t  phoEta_;
+  Float_t  phoPhi_;
+  Float_t  phoFoldedPhi_;
+  Float_t  phoSeedTime_;
+
+  Float_t  deltaRTrigg_;
+  Float_t  deltaPtTrigg_;
+
+  UChar_t  phoQualityBits_;
+
+  Float_t  phoR9Full5x5_;
+  Float_t  phoS4Full5x5_;
+  Float_t  phoESEffSigmaRR_;
+
+  Float_t  phoEmaxOESCrFull5x5_;
+  Float_t  phoE2ndOESCrFull5x5_;
+  Float_t  phoE2ndOEmaxFull5x5_;
+  Float_t  phoE1x3OESCrFull5x5_;
+  Float_t  phoE2x5OESCrFull5x5_;
+  Float_t  phoE5x5OESCrFull5x5_;
+  Float_t  phoEmaxOE3x3Full5x5_;
+  Float_t  phoE2ndOE3x3Full5x5_;
+  Float_t  pho2x2OE3x3Full5x5_;
+  Float_t  phoEtaWidth_;
+  Float_t  phoPhiWidth_;
+  Float_t  phoSieieOSipipFull5x5_;
+  Float_t  phoEtaWOPhiWFull5x5_;
+  Float_t  phoSigmaIEtaIEta_;
+  Float_t  phoSigmaIPhiIPhi_;
+  Float_t  phoSigmaIEtaIPhi_;
+  Float_t  phoE2x2Full5x5_;
+  Float_t  phoE3x3Full5x5_;
+  Float_t  phoE5x5Full5x5_;
+  Float_t  phoMaxEnergyXtal_;
+  Float_t  phoE2ndFull5x5_;
+  Float_t  phoE1x3Full5x5_;
+  Float_t  phoE1x5Full5x5_;
+  Float_t  phoE2x5Full5x5_;
+
+  Float_t  phoPFClusEcalIso_;
+  Float_t  phoPFClusHcalIso_;
+  Float_t  phoTrkSumPtSolidConeDR04_;
+  Float_t  phoTrkSumPtHollowConeDR04_;
+  Float_t  phoTrkSumPtSolidConeDR03_;
+  Float_t  phoTrkSumPtHollowConeDR03_;
+  Float_t  phoECALIso_;
+  Float_t  phoHCALIso_;
+  Float_t  phoPFECALClusIsoCorr_;
+  Float_t  phoPFHCALClusIsoCorr_;
+  Float_t  phoTkrIsoCorr_;
+  Float_t  phoHoverE_;
+  Float_t  phoPFChIso_;
+  Float_t  phoPFPhoIso_;
+  Float_t  phoPFNeuIso_;
+  Float_t  phoPFChWorstIso_;
+  Float_t  phoIDMVA_;
+  Float_t  phoBDTpred_;
+  UChar_t  phoIDbit_;
+  UChar_t  phoPFClusIDbits_;
+  Bool_t   passBDTid_                 = 0;
+  Bool_t   passSieieId_               = 0;
+
+  Float_t  phoMIP_;
+
+  Float_t  phoSCet_;
+  Float_t  phoSCrawet_;
+  Float_t  phoSCeta_;
+  Float_t  phoAbsSCEta_;
+  Float_t  phoSCphi_;
+  Float_t  phoSCEn_;
+  Float_t  phoSCRawEn_;
+
+  UChar_t  lepVeto_;
+
+  UInt_t  nMuCands_;
+  UInt_t  nEleCands_;
+
+  Float_t  lepPt_;
+  Float_t  lepEta_;
+  Float_t  lepPhi_;
+  Int_t    lepGenPID_ = -9999;
+
+  Float_t  deltaRPhoLep_;
+
+  Float_t  pfMET_;
+  Float_t  pfMETPhi_;
+  Float_t  pfMETSig_;
+  Float_t  pfMETEtSig_;
+  Float_t  pfMET_O_gen_met_        = -999;
+  Float_t  pfMET_O_gen_met_Phi_    = -999;
+  Float_t  pfMET_M_gen_met_Phi_    = -999;
+
+  Float_t  deltaPhiPFmetPho_;
+  Float_t  mTphoPFmet_;
+  Float_t  phoPtOverPFmet_;
+  Float_t  phoPtOverLepPFmetRecoilPt_;
+  Float_t  phoPtOverLepPUPPImetRecoilPt_;
+
+  Float_t  deltaPhiLepPFmet_;
+  Float_t  mTLepPFmet_;
+  Float_t  lepPFmetRecoilPt_;
+  Float_t  lepPFmetRecoilPhi_;
+  Float_t  deltaPhiPFRecoilPho_;
+  Float_t  minDeltaPhiPFRecoilJet30_;
+
+  Float_t  puppiMET_;
+  Float_t  puppiMETPhi_;
+  Float_t  puppiMETSig_;
+  Float_t  puppiMETEtSig_;
+  Float_t  puppiMET_O_gen_met_     = -999;
+  Float_t  puppiMET_O_gen_met_Phi_ = -999;
+  Float_t  puppiMET_M_gen_met_Phi_    = -999;
+
+  Float_t  deltaPhiPUPPImetPho_;
+  Float_t  mTphoPUPPImet_;
+  Float_t  phoPtOverPUPPImet_;
+
+  Float_t  deltaPhiLepPUPPImet_;
+  Float_t  mTLepPUPPImet_;
+  Float_t  lepPUPPImetRecoilPt_;
+  Float_t  lepPUPPImetRecoilPhi_;
+  Float_t  deltaPhiPUPPIRecoilPho_;
+  Float_t  minDeltaPhiPUPPIRecoilJet30_;
+
+  Float_t  nCHSJet30_;
+  Float_t  CHSJetHt30_;
+  Float_t  minDeltaPhiPFmetJet30_;
+  Float_t  minDeltaRPhoCHSJet30_;
+  Float_t  minDeltaRLepCHSJet30_;
+
+  Float_t  nPUPPIJet30_;
+  Float_t  PUPPIJetHt30_;
+  Float_t  minDeltaPhiPUPPImetJet30_;
+  Float_t  minDeltaRPhoPUPPIJet30_;
+  Float_t  minDeltaRLepPUPPIJet30_;
+
+  Float_t  genMtLepMet_;
+
+  Float_t  genDeltaPhiRecoilPho_;
+  Float_t  genDeltaPhiMETpho_;
+  Float_t  genPhoPtOverMet_;
+
+  Float_t  pfOgen_MtLepMet_;
+  Float_t  pfOgen_DeltaPhiRecoilPho_;
+  Float_t  pfOgen_DeltaPhiMETpho_;
+  Float_t  pfOgen_PhoPtOverMet_;
+  Float_t  pfMgen_PhoPtOverMet_;
+  Float_t  pfMgen_DeltaPhiRecoilPho_;
+  Float_t  pfMgen_DeltaPhiMETpho_;
+
+  Float_t  puppiOgen_MtLepMet_;
+  Float_t  puppiOgen_DeltaPhiRecoilPho_;
+  Float_t  puppiOgen_DeltaPhiMETpho_;
+  Float_t  puppiOgen_PhoPtOverMet_;
+  Float_t  puppiMgen_PhoPtOverMet_;
+  Float_t  puppiMgen_DeltaPhiRecoilPho_;
+  Float_t  puppiMgen_DeltaPhiMETpho_;
+
+  Float_t  phoIdSF_                = 1.;
+  Float_t  phoPixelVetoSF_         = 1.;
+  Float_t  lepIdSF_                = 1.;
+  Float_t  eleVetoSF_              = 1.;
+  Float_t  muVetoSF_               = 1.;
+  Float_t  tauVetoSF_              = 1.;
+
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+  /////////////////////////////////////////////////Buffer variables///////////////////////////////////////////////////////
+  Short_t       phoTrigMatch;
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+  /////////////////////////////////////////////////// XGBoost ////////////////////////////////////////////////////////////
+  DMatrixHandle     dTest;
+  BoosterHandle     phoBDT_EB_h;
+  BoosterHandle     phoBDT_EE_h;
+  Bool_t        predictBDT_EB = 0;
+  Bool_t        predictBDT_EE = 0;
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+  //////////////////////////////////////////////////Categories////////////////////////////////////////////////////////////
+  Bool_t            initEventTypes();
+  void              initEventType(eventType & evType, std::string typeName, std::string typeTitle);
+  void              fillEventType(eventType & evType);
+  void              registerCutFlow(eventType & evType);
+  void              registerAllCutFlow();
+  eventType         fullECAL;
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+genPhoFinderPostTraining::genPhoFinderPostTraining(std::string FILELIST, std::string OUTFILE, Float_t XSECTION, std::string MCPILEUPHIST, std::string DATAPILEUPHIST,
+    std::string PFECALCLUS_PUCORRECTIONS, std::string PFHCALCLUS_PUCORRECTIONS, std::string TKRISO_PUCORRECTIONS,
+    std::string PFECALCLUS_PTSCALING, std::string PFHCALCLUS_PTSCALING,
+    std::string EB_BDT_PATH,
+    std::string EE_BDT_PATH,
+    std::string PIXEL_VETO_SF_PATH,
+    std::string ELE_SF_PATH_CAND,
+    std::string ELE_SF_PATH_VETO,
+    std::string ELE_VETO_ID_EFF_MC,
+    std::string MU_ID_SF_PATH_CAND,
+    std::string MU_ISO_SF_PATH_CAND,
+    std::string MU_ID_EFF_PATH_VETO_MC,
+    std::string MU_ISO_EFF_PATH_VETO_MC,
+    std::string MU_ID_SF_PATH_VETO,
+    std::string MU_ISO_SF_PATH_VETO
+                                                  ) {
+
+  std::cout << "*************************************************************************************************************************************************" << std::endl <<
+            getCurrentTime() << std::endl <<
+            "Running genPhoFinderPostTraining" << std::endl <<
+            "\n\nInput parameters:" << std::endl <<
+            "\t\tFile list = " << FILELIST << std::endl <<
+            "\t\tOutput file = " << OUTFILE << std::endl <<
+            "\t\tCross section = " << XSECTION << std::endl <<
+            "\t\tMC pileup histogram = " << MCPILEUPHIST << std::endl <<
+            "\t\tData pileup histogram = " << DATAPILEUPHIST << std::endl <<
+            "\t\tECAL PFCLuster Isolation Effective Areas = " << PFECALCLUS_PUCORRECTIONS << std::endl <<
+            "\t\tHCAL PFCLuster Isolation Effective Areas = " << PFHCALCLUS_PUCORRECTIONS << std::endl <<
+            "\t\tTracker Isolation Effective Areas = " << TKRISO_PUCORRECTIONS << std::endl <<
+            "\t\tECAL PFCLuster Isolation pT Scaling = " << PFECALCLUS_PTSCALING << std::endl <<
+            "\t\tHCAL PFCLuster Isolation pT Scaling = " << PFHCALCLUS_PTSCALING << std::endl <<
+            "\t\tBDT model file = " << EB_BDT_PATH << std::endl;
+
+  xSec = XSECTION;
+  if (XSECTION > 0.) isMC = true;
+  if (isMC && file_exists(MCPILEUPHIST) && file_exists(DATAPILEUPHIST)) doPUreweight = true;
+
+  std::cout << "\t\tSample is simulation = " << std::boolalpha << isMC << std::endl <<
+            "\t\tDo pileup reweight = " << doPUreweight << "\n\n" << std::endl;
+
+
+  if (doPUreweight) {
+    std::cout << "Pileup reweighting:" << std::endl;
+    puReweighter.init(MCPILEUPHIST, DATAPILEUPHIST, "hPUTruew", "pileup");
+  }
+
+
+  if (file_exists(split_string(PFECALCLUS_PUCORRECTIONS)[0])) {
+    std::cout << "PF ECAL Cluster Isolation pileup corrections:" << std::endl;
+    ecalIsoRhoCorrMap.init(split_string(PFECALCLUS_PUCORRECTIONS)[0], std::stoi(split_string(PFECALCLUS_PUCORRECTIONS)[1]));
+  }
+
+
+  if (file_exists(split_string(PFHCALCLUS_PUCORRECTIONS)[0])) {
+    std::cout << "PF HCAL Cluster Isolation pileup correction:" << std::endl;
+    hcalIsoRhoCorrMap.init(split_string(PFHCALCLUS_PUCORRECTIONS)[0], std::stoi(split_string(PFHCALCLUS_PUCORRECTIONS)[1]));
+  }
+
+  if (file_exists(split_string(TKRISO_PUCORRECTIONS)[0])) {
+    std::cout << "Tracker Isolation pileup corrections:" << std::endl;
+    tkrIsoRhoCorrMap.init(split_string(TKRISO_PUCORRECTIONS)[0], std::stoi(split_string(TKRISO_PUCORRECTIONS)[1]));
+  }
+
+  if (file_exists(split_string(PFECALCLUS_PTSCALING)[0])) {
+    std::cout << "PF ECAL Cluster Isolation pT scaling corrections:" << std::endl;
+    ecalIsoPtCorrMap.init(split_string(PFECALCLUS_PTSCALING)[0], std::stoi(split_string(PFECALCLUS_PTSCALING)[1]));
+  }
+
+  if (file_exists(split_string(PFHCALCLUS_PTSCALING)[0])) {
+    std::cout << "PF HCAL Cluster Isolation pT scaling corrections:" << std::endl;
+    hcalIsoPtCorrMap.init(split_string(PFHCALCLUS_PTSCALING)[0], std::stoi(split_string(PFHCALCLUS_PTSCALING)[1]));
+  }
+
+
+  if (isMC) {
+    pixelVetoSF.init(PIXEL_VETO_SF_PATH);
+
+    muonCandIdSF.init(MU_ID_SF_PATH_CAND);
+    muonCandIsoSF.init(MU_ISO_SF_PATH_CAND);
+    muonVetoIdSF.init(MU_ID_SF_PATH_VETO);
+    muonVetoIsoSF.init(MU_ISO_SF_PATH_VETO);
+    muonVetoIdMCeff.init(MU_ID_EFF_PATH_VETO_MC);
+    muonVetoIsoMCeff.init(MU_ISO_EFF_PATH_VETO_MC);
+
+    eleCandSF.init(ELE_SF_PATH_CAND);
+    eleVetoSF.init(ELE_SF_PATH_VETO);
+    eleVetoIDEffMC.init(ELE_VETO_ID_EFF_MC);
+  }
+
+  if (file_exists(EB_BDT_PATH)) {
+    std::cout << "\nLoading Photon EB BDT model from " << EB_BDT_PATH << std::endl;
+    XGBoosterCreate(NULL, 0, &phoBDT_EB_h);
+    XGBoosterSetParam(phoBDT_EB_h, "seed", "0");
+    Int_t mLdSuccess = XGBoosterLoadModel(phoBDT_EB_h, EB_BDT_PATH.c_str());
+    if (mLdSuccess == 0) predictBDT_EB = 1;
+    else {
+      std::cout << "Failed to load Photon EB BDT model!" << std::endl;
+    }
+  }
+
+  if (file_exists(EB_BDT_PATH)) {
+    std::cout << "\nLoading Photon EE BDT model from " << EE_BDT_PATH << std::endl;
+    XGBoosterCreate(NULL, 0, &phoBDT_EE_h);
+    XGBoosterSetParam(phoBDT_EE_h, "seed", "0");
+    Int_t mLdSuccess = XGBoosterLoadModel(phoBDT_EE_h, EE_BDT_PATH.c_str());
+    if (mLdSuccess == 0) predictBDT_EE = 1;
+    else {
+      std::cout << "Failed to load Photon EE BDT model!" << std::endl;
+    }
+  }
+
+  std::cout << "\nCreating TChain... " << std::endl;
+  if (!initNtuples(FILELIST)) exit(EXIT_FAILURE);
+
+  outFile = new TFile(OUTFILE.c_str(), "RECREATE");
+
+  initEventTypes();
+
+  analyze();
+
+  outFile->Write();
+  outFile->Close();
+
+  closeTChain(inputTree);
+
+  std::cout << "\n\nOutput written to file\t" << OUTFILE << std::endl << "Complete!" << std::endl << getCurrentTime() << std::endl;
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Short_t       genPhoFinderPostTraining::nearestFinalGen(Float_t _eta, Float_t _phi, Float_t _deltaRmax, Bool_t _matchPDGid = 0, Int_t _pdgID = 22, Bool_t _absPID = 1) {
+
+  Short_t matchedGen = -999;
+  Float_t minDeltaR = 999.;
+
+  for (UShort_t iGenP = 0; iGenP < _nMC; iGenP++) {
+
+    if (_mcStatus[iGenP] != 1) continue;
+
+    if (_matchPDGid) {
+      if (_absPID) {
+        if (std::abs(_mcPID[iGenP]) != _pdgID) continue;
+      } else {
+        if (_mcPID[iGenP] != _pdgID) continue;
+      }
+    }
+
+    Float_t dRiGenReco = deltaR(_eta, _phi, _mcEta[iGenP], _mcPhi[iGenP]);
+    if (dRiGenReco > _deltaRmax) continue;
+
+    if (dRiGenReco < minDeltaR) {
+      minDeltaR = dRiGenReco;
+      matchedGen = iGenP;
+    }
+  }
+
+  return matchedGen;
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Short_t       genPhoFinderPostTraining::nearestFinalGen(Short_t _phoIndex, Float_t _deltaRmax) {
+
+  Short_t matchedGen = -999;
+  Float_t minDeltaR = 999.;
+
+  for (UShort_t iGenP = 0; iGenP < _nMC; iGenP++) {
+
+    if (_mcStatus[iGenP] != 1) continue;
+
+    Float_t dRiGenPho = deltaR(_phoEta[_phoIndex], _phoPhi[_phoIndex], _mcEta[iGenP], _mcPhi[iGenP]);
+    if (dRiGenPho > _deltaRmax) continue;
+
+    if (dRiGenPho < minDeltaR) {
+      minDeltaR = dRiGenPho;
+      matchedGen = iGenP;
+    }
+  }
+
+  return matchedGen;
+};
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Short_t genPhoFinderPostTraining::photonIsTrue(Short_t _phoIndex, Float_t _deltaRmax, Float_t _relDeltaPtMin, Float_t _relDeltaPtMax) {
+
+  Short_t matchedPromptGenPho = -999;
+  Float_t minDeltaR = 999.;
+
+  for (UShort_t iGenP = 0; iGenP < _nMC; iGenP++) {
+    if (_mcPID[iGenP] != 22) continue;
+
+
+    UShort_t iGenPStFl = _mcStatusFlag[iGenP];                    //// 1 = prompt
+    UShort_t iGenPStatusType = _mcPromptStatusType[iGenP];        //// 0 = direct prompt, 2 = lepton prompt
+
+    if (!getBit(iGenPStFl, 1) && iGenPStatusType != 0 && iGenPStatusType != 2) continue;
+
+    Float_t dRiGenPho = deltaR(_phoEta[_phoIndex], _phoPhi[_phoIndex], _mcEta[iGenP], _mcPhi[iGenP]);
+    if (dRiGenPho > _deltaRmax) continue;
+
+    Float_t relDeltaPtiGenPho = (_phoCalibEt[_phoIndex] - _mcPt[iGenP])/_mcPt[iGenP];
+    if (relDeltaPtiGenPho > _relDeltaPtMax) continue;
+    if (relDeltaPtiGenPho < _relDeltaPtMin) continue;
+
+    if (dRiGenPho < minDeltaR) {
+      minDeltaR = dRiGenPho;
+      matchedPromptGenPho = iGenP;
+    }
+  }
+
+  return matchedPromptGenPho;
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Short_t genPhoFinderPostTraining::photonIsPrompt(Short_t _phoIndex, Float_t _deltaRmax, Float_t _relDeltaPtMin, Float_t _relDeltaPtMax) {
+
+  Short_t matchedPromptGenPho = -999;
+  Float_t minDeltaR = 999.;
+
+  for (UShort_t iGenP = 0; iGenP < _nMC; iGenP++) {
+    if (_mcPID[iGenP] != 22) continue;
+
+    UShort_t iGenPStFl = _mcStatusFlag[iGenP];
+    if (!getBit(iGenPStFl, 1)) continue;
+
+    Float_t dRiGenPho = deltaR(_phoEta[_phoIndex], _phoPhi[_phoIndex], _mcEta[iGenP], _mcPhi[iGenP]);
+    if (dRiGenPho > _deltaRmax) continue;
+
+    Float_t relDeltaPtiGenPho = (_phoCalibEt[_phoIndex] - _mcPt[iGenP])/_mcPt[iGenP];
+    if (relDeltaPtiGenPho > _relDeltaPtMax) continue;
+    if (relDeltaPtiGenPho < _relDeltaPtMin) continue;
+
+    if (dRiGenPho < minDeltaR) {
+      minDeltaR = dRiGenPho;
+      matchedPromptGenPho = iGenP;
+    }
+  }
+
+  return matchedPromptGenPho;
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Short_t genPhoFinderPostTraining::matchWithRecoPho(Short_t _genIndex, Float_t _deltaRmax, Float_t _relDeltaPtMin, Float_t _relDeltaPtMax) {
+
+  Short_t matchedRecoPho = -999;
+  Float_t minDeltaR = 999.;
+
+  for (UShort_t iPho = 0; iPho < _nPho; iPho++) {
+
+    // UChar_t iPhoFidReg = _phoFiducialRegion[iPho];
+    // if (!getBit(iPhoFidReg, 0)) continue;       //// skip if not EB (0 = EB, 1 = EE, 2 = EB-EE gap)
+
+    //// if(_phoCalibEt[iPho] < 200.) continue;
+
+    Float_t relDeltaPtiGenPho = (_phoCalibEt[iPho] - _mcPt[_genIndex]) / _mcPt[_genIndex];
+    if (relDeltaPtiGenPho > _relDeltaPtMax) continue;
+    if (relDeltaPtiGenPho < _relDeltaPtMin) continue;
+
+    Float_t dRiGenPho = deltaR(_phoEta[iPho], _phoPhi[iPho], _mcEta[_genIndex], _mcPhi[_genIndex]);
+    if (dRiGenPho > _deltaRmax) continue;
+
+    if (dRiGenPho < minDeltaR) {
+      matchedRecoPho = iPho;
+      minDeltaR = dRiGenPho;
+    }
+  }
+
+  return matchedRecoPho;
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+// //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Short_t  genPhoFinderPostTraining::matchWithTrigPho(Short_t _phoIndex, Float_t _deltaRmax, Float_t _relDeltaPtMin, Float_t _relDeltaPtMax) {
+  Float_t minDeltaR = 999.;
+  Short_t matchedTrigPho = -999;
+
+  for (UShort_t iTrgPho = 0; iTrgPho < _trgObjPhoBits2.size(); iTrgPho++) {
+
+    if (!getBit(_trgObjPhoBits1[iTrgPho],22) && !getBit(_trgObjPhoBits2[iTrgPho],22)) continue;     //// 22= HLT_Pho_200
+
+    Float_t relDeltaPt = (_phoCalibEt[_phoIndex] - _trgObjPhoPt[iTrgPho]) / _trgObjPhoPt[iTrgPho];
+    if (relDeltaPt > _relDeltaPtMax) continue;
+    if (relDeltaPt < _relDeltaPtMin) continue;
+
+    Float_t dR = deltaR(_phoEta[_phoIndex], _phoPhi[_phoIndex], _trgObjPhoEta[iTrgPho], _trgObjPhoPhi[iTrgPho]);
+    if (dR > _deltaRmax) continue;
+
+    if (dR < minDeltaR) {
+      matchedTrigPho = iTrgPho;
+      minDeltaR = dR;
+    }
+  }
+
+  return matchedTrigPho;
+};
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Bool_t genPhoFinderPostTraining::photonIsFake(Short_t _phoIndex, Float_t _deltaRmax) {
+  //// Checks for the existence of a prompt gen photon within a given deltaR cone
+  Bool_t photonIsFake = 1;
+  Float_t photonEta = _phoEta[_phoIndex];
+  Float_t photonPhi = _phoPhi[_phoIndex];
+
+  for (UShort_t iGenP = 0; iGenP < _nMC; iGenP++) {
+    if (_mcPID[iGenP] != 22) continue;
+
+    UShort_t iGenPStFl = _mcStatusFlag[iGenP];
+    if (!getBit(iGenPStFl, 1)) continue;
+
+    Float_t dRiGenPho = deltaR(photonEta, photonPhi, _mcEta[iGenP], _mcPhi[iGenP]);
+    if (dRiGenPho > _deltaRmax) continue;
+
+    photonIsFake = 0;
+
+    break;
+  }
+
+  return photonIsFake;
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Bool_t genPhoFinderPostTraining::selectEvent() {
+
+  //// reset event cut flow
+  fullECAL.lastCutStep = 0.1;
+  registerAllCutFlow();
+
+  UShort_t metFilters = (_metFilters);            //// MET filters
+
+  if (getBit(metFilters, 0))   return 0;          //// Flag_goodVertices
+  registerAllCutFlow();
+
+  if (getBit(metFilters, 1))   return 0;          //// Flag_globalSuperTightHalo2016Filter
+  registerAllCutFlow();
+
+  if (getBit(metFilters, 2))   return 0;          //// Flag_HBHENoiseFilter
+  registerAllCutFlow();
+
+  if (getBit(metFilters, 3))   return 0;          //// Flag_HBHENoiseIsoFilter
+  registerAllCutFlow();
+
+  if (getBit(metFilters, 4))   return 0;          //// Flag_EcalDeadCellTriggerPrimitiveFilter
+  registerAllCutFlow();
+
+  if (getBit(metFilters, 5))   return 0;          //// Flag_BadPFMuonFilter
+  registerAllCutFlow();
+
+  if (getBit(metFilters, 9))   return 0;          //// Flag_BadPFMuonDzFilter
+  registerAllCutFlow();
+
+  if (getBit(metFilters, 7))   return 0;          //// Flag_eeBadScFilter
+  registerAllCutFlow();
+
+  if (getBit(metFilters, 11))   return 0;          //// Updated ecalBadCalibFilter
+  registerAllCutFlow();
+
+  nPhoCand_              = 0.0001;
+
+  Short_t highetsPtGenIndex   = -9999;
+  Float_t highestPt           = -999.;
+  Bool_t  passedPrompt        = 0;
+  Bool_t  passedRecoMatch     = 0;
+  Short_t matchedRecoPhoton   = -999;
+
+  for (UShort_t iGenP=0; iGenP<_nMC; iGenP++) {
+
+    if (_mcPID[iGenP] != 22) continue;
+
+    if (_mcPromptStatusType[iGenP] !=0) continue;
+
+    nPhoCand_ += 1.;
+
+    Short_t iGenRecoMatch = matchWithRecoPho(iGenP, 0.2, -0.2, 0.2);
+    if (iGenRecoMatch < 0) continue;
+    passedRecoMatch = 1;
+
+    if (_mcPt[iGenP] > highestPt) {
+      highetsPtGenIndex = iGenP;
+      highestPt = _mcPt[iGenP];
+      matchedRecoPhoton = iGenRecoMatch;
+    }
+  }
+
+  if (passedPrompt) registerAllCutFlow();
+  if (passedRecoMatch) registerAllCutFlow();
+
+  if (highetsPtGenIndex < 0) return 0;
+
+  if (_phoCalibEt[matchedRecoPhoton] < 200.) return 0;
+  registerAllCutFlow();
+
+  Float_t absSCeta = std::abs(_ecalSC_eta[_phoDirectEcalSCindex[matchedRecoPhoton]]);
+  if (absSCeta > BETRetaMin && absSCeta < BETRetaMax) return 0;
+
+  fillVars(matchedRecoPhoton);
+
+  fillEventType(fullECAL);
+
+
+  return 1;
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Bool_t genPhoFinderPostTraining::initEventTypes() {
+
+  pileupPreweight.SetDirectory(outFile->GetDirectory(""));
+  pileupPostweight.SetDirectory(outFile->GetDirectory(""));
+  rhoPreweight.SetDirectory(outFile->GetDirectory(""));
+  rhoPostweight.SetDirectory(outFile->GetDirectory(""));
+  nvtxPreweight.SetDirectory(outFile->GetDirectory(""));
+  nvtxPostweight.SetDirectory(outFile->GetDirectory(""));
+
+  initEventType(fullECAL, "fullECAL", "Full ECAL");
+  return 1;
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void genPhoFinderPostTraining::analyze() {
+  std::cout << "--------------------------------------------------------------------------------------------------" << std::endl <<
+            getCurrentTime() << std::endl <<
+            "Analyzing events.." << std::endl;
+  ULong64_t current_entry = 0;
+  while (inputTTreeReader.Next()) {
+
+    if (current_entry % REPORT_EVERY == 0) {
+      std::cout << "\t" << getCurrentTime() << "\tAnalyzing entry\t" << current_entry <<
+                ",\t\tevent\t" << (_event) << "\t\tFile " << inputTree->GetCurrentFile()->GetName() << std::endl;
+    }
+
+
+    rhoPreweight.Fill(_rho, genWeight_);
+    nvtxPreweight.Fill(_nVtx, genWeight_);
+
+    if (isMC) {
+      if (doPUreweight) {
+        genWeight_ = _genWeight;
+        puWeight_ = puReweighter.weight(_puTrue);
+        Float_t genPUweight = genWeight_ * puWeight_;
+        pileupPostweight.Fill(_puTrue, genPUweight);
+        rhoPostweight.Fill(_rho, genPUweight);
+        nvtxPostweight.Fill(_nVtx, genPUweight);
+      } else {
+        genWeight_ = _genWeight;
+        puWeight_ = 1.;
+      }
+      pileupPreweight.Fill(_puTrue, genWeight_);
+    }
+
+    selectEvent();
+
+    current_entry++;
+  };
+
+  std::cout << "Done analyzing!" << std::endl <<
+            getCurrentTime() << std::endl <<
+            "--------------------------------------------------------------------------------------------------" << std::endl;
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Float_t   genPhoFinderPostTraining::getPhoBDTScore(Short_t iPho) {
+
+
+  Short_t phoSCindex    = _phoDirectEcalSCindex[iPho];
+
+  Float_t phoSCabsEta = std::abs(_ecalSC_eta[phoSCindex]);
+
+  Bool_t isEB = (phoSCabsEta <= BETRetaMin);
+
+  Float_t iPhoBDTpred = -999;
+
+  const float *prediction;
+  bst_ulong out_len;
+
+  if (isEB) {
+
+    std::vector<Float_t> feats{_phoE2x2Full5x5[iPho] / (_phoR9Full5x5[iPho] * _ecalSC_RawEn[phoSCindex]),
+                               phoSCabsEta,
+                               _phoE1x3Full5x5[iPho] / _ecalSC_RawEn[phoSCindex],
+                               _phoE2ndFull5x5[iPho] / _ecalSC_RawEn[phoSCindex],
+                               _phoE2x5Full5x5[iPho] / _ecalSC_RawEn[phoSCindex],
+                               _phoMaxEnergyXtal[iPho] / _ecalSC_RawEn[phoSCindex],
+                               _ecalSC_etaWidth[phoSCindex] / _ecalSC_phiWidth[phoSCindex],
+                               _ecalSC_etaWidth[phoSCindex],
+                               _ecalSC_phiWidth[phoSCindex],
+                               _phoCalibEt[phoSCindex],
+                               _phoR9Full5x5[iPho],
+                               _phoE2x2Full5x5[iPho] / _ecalSC_RawEn[phoSCindex],
+                               _phoSigmaIEtaIEtaFull5x5[iPho] / _phoSigmaIPhiIPhiFull5x5[iPho],
+                               _phoSigmaIEtaIEtaFull5x5[iPho],
+                               _phoSigmaIEtaIPhiFull5x5[iPho],
+                               _phoSigmaIPhiIPhiFull5x5[iPho]};
+
+    XGDMatrixCreateFromMat((float*)feats.data(), 1, feats.size(), -9999999999, &dTest);
+    XGBoosterPredict(phoBDT_EB_h, dTest, 0, 0, 0, &out_len, &prediction);
+    assert(out_len == 1);
+    iPhoBDTpred = prediction[0];
+    XGDMatrixFree(dTest);
+
+  } else {
+
+    std::vector<Float_t> feats{ _phoE2x2Full5x5[iPho] / (_phoR9Full5x5[iPho] * _ecalSC_RawEn[phoSCindex]),
+                                phoSCabsEta,
+                                _phoE1x3Full5x5[iPho] / _ecalSC_RawEn[phoSCindex],
+                                _phoE2ndFull5x5[iPho] / _ecalSC_RawEn[phoSCindex],
+                                _phoE2x5Full5x5[iPho] / _ecalSC_RawEn[phoSCindex],
+                                _phoESEffSigmaRR[iPho],
+                                _phoMaxEnergyXtal[iPho] / _ecalSC_RawEn[phoSCindex],
+                                _ecalSC_etaWidth[phoSCindex] / _ecalSC_phiWidth[phoSCindex],
+                                _ecalSC_etaWidth[phoSCindex],
+                                _ecalSC_phiWidth[phoSCindex],
+                                _phoCalibEt[phoSCindex],
+                                _phoR9Full5x5[iPho],
+                                _phoE2x2Full5x5[iPho] / _ecalSC_RawEn[phoSCindex],
+                                _phoSigmaIEtaIEtaFull5x5[iPho] / _phoSigmaIPhiIPhiFull5x5[iPho],
+                                _phoSigmaIEtaIEtaFull5x5[iPho],
+                                _phoSigmaIEtaIPhiFull5x5[iPho],
+                                _phoSigmaIPhiIPhiFull5x5[iPho]
+                              };
+
+    XGDMatrixCreateFromMat((float*)feats.data(), 1, feats.size(), -9999999999, &dTest);
+    XGBoosterPredict(phoBDT_EE_h, dTest, 0, 0, 0, &out_len, &prediction);
+    assert(out_len == 1);
+    iPhoBDTpred = prediction[0];
+    XGDMatrixFree(dTest);
+
+  }
+
+  return iPhoBDTpred;
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Char_t genPhoFinderPostTraining::fillVars(const Short_t _phoIndex) {
+
+  //// event info
+  run_               = _run;
+  event_             = _event;
+  lumis_             = _lumis;
+  rho_               = _rho;
+  nVtx_              = _nVtx;
+
+
+
+  metFilters_        = _metFilters;
+  beamHaloSummary_   = _beamHaloSummary;
+
+
+
+  Short_t phoSCindex = _phoDirectEcalSCindex[_phoIndex];
+
+
+
+  phoSCeta_          = _ecalSC_eta[phoSCindex];
+  phoAbsSCEta_       = std::abs(phoSCeta_);
+
+
+
+  isEBevent_         = (phoAbsSCEta_ <= 1.5);
+
+
+
+  //// Photon
+  phoPt_             = _phoCalibEt[_phoIndex];
+  phoEta_            = _phoEta[_phoIndex];
+  phoPhi_            = _phoPhi[_phoIndex];
+  phoFoldedPhi_      = foldedPhi(phoPhi_);
+  phoSeedTime_       = _phoSeedTime[_phoIndex];
+
+  phoTrigMatch = matchWithTrigPho(_phoIndex, 0.3, -10., 10.);
+  deltaRTrigg_ = - 999;
+  deltaPtTrigg_ = - 999;
+  if (phoTrigMatch > -1) {
+    deltaRTrigg_ = deltaR(phoEta_, phoPhi_, _trgObjPhoEta[phoTrigMatch], _trgObjPhoPhi[phoTrigMatch]);
+    deltaPtTrigg_ = (_trgObjPhoPt[phoTrigMatch] - phoPt_) / _trgObjPhoPt[phoTrigMatch];
+  }
+
+  phoQualityBits_            = _phoQualityBits[_phoIndex];
+
+  phoR9Full5x5_              = _phoR9Full5x5[_phoIndex];
+  phoS4Full5x5_              = _phoE2x2Full5x5[_phoIndex] / _ecalSC_RawEn[phoSCindex];
+  phoESEffSigmaRR_           = _phoESEffSigmaRR[_phoIndex];
+  phoEmaxOESCrFull5x5_       = _phoMaxEnergyXtal[_phoIndex] / _ecalSC_RawEn[phoSCindex];
+  phoE2ndOESCrFull5x5_       = _phoE2ndFull5x5[_phoIndex] / _ecalSC_RawEn[phoSCindex];
+  phoE2ndOEmaxFull5x5_       = _phoE2ndFull5x5[_phoIndex] / _phoMaxEnergyXtal[_phoIndex];
+  phoE1x3OESCrFull5x5_       = _phoE1x3Full5x5[_phoIndex] / _ecalSC_RawEn[phoSCindex];
+  phoE2x5OESCrFull5x5_       = _phoE2x5Full5x5[_phoIndex] / _ecalSC_RawEn[phoSCindex];
+  phoE5x5OESCrFull5x5_       = _phoE5x5Full5x5[_phoIndex] / _ecalSC_RawEn[phoSCindex];
+  phoSigmaIEtaIEta_          = _phoSigmaIEtaIEtaFull5x5[_phoIndex];
+  phoSigmaIEtaIPhi_          = _phoSigmaIEtaIPhiFull5x5[_phoIndex];
+  phoSigmaIPhiIPhi_          = _phoSigmaIPhiIPhiFull5x5[_phoIndex];
+  phoE2x2Full5x5_            = _phoE2x2Full5x5[_phoIndex];
+  phoE3x3Full5x5_            = phoR9Full5x5_ * _ecalSC_RawEn[phoSCindex];
+  phoE5x5Full5x5_            = _phoE5x5Full5x5[_phoIndex];
+  phoMaxEnergyXtal_          = _phoMaxEnergyXtal[_phoIndex];
+  phoE2ndFull5x5_            = _phoE2ndFull5x5[_phoIndex];
+  phoE1x3Full5x5_            = _phoE1x3Full5x5[_phoIndex];
+  phoE1x5Full5x5_            = _phoE1x5Full5x5[_phoIndex];
+  phoE2x5Full5x5_            = _phoE2x2Full5x5[_phoIndex];
+  phoEmaxOE3x3Full5x5_       = phoMaxEnergyXtal_ / phoE3x3Full5x5_;
+  phoE2ndOE3x3Full5x5_       = phoE2ndFull5x5_ / phoE3x3Full5x5_;
+  pho2x2OE3x3Full5x5_        = _phoE2x2Full5x5[_phoIndex] / (_phoR9Full5x5[_phoIndex] * _ecalSC_RawEn[phoSCindex]);
+  phoSieieOSipipFull5x5_     = _phoSigmaIEtaIEtaFull5x5[_phoIndex] / _phoSigmaIPhiIPhiFull5x5[_phoIndex];
+
+  phoPFClusEcalIso_          = _phoPFClusEcalIso[_phoIndex];
+  phoPFClusHcalIso_          = _phoPFClusHcalIso[_phoIndex];
+  phoTrkSumPtSolidConeDR04_  = _phoTrkSumPtSolidConeDR04[_phoIndex];
+  phoTrkSumPtHollowConeDR04_ = _phoTrkSumPtHollowConeDR04[_phoIndex];
+  phoTrkSumPtSolidConeDR03_  = _phoTrkSumPtSolidConeDR03[_phoIndex];
+  phoTrkSumPtHollowConeDR03_ = _phoTrkSumPtHollowConeDR03[_phoIndex];
+  phoECALIso_                = _phoECALIso[_phoIndex];
+  phoHCALIso_                = _phoHCALIso[_phoIndex];
+
+
+  phoPFECALClusIsoCorr_      = phoPFClusEcalIso_ - ecalIsoRhoCorrMap.getIsoCorr(phoAbsSCEta_, rho_, 0) - ecalIsoPtCorrMap.getIsoCorr(phoAbsSCEta_, phoPt_, 1);
+  phoPFHCALClusIsoCorr_      = phoPFClusHcalIso_ - hcalIsoRhoCorrMap.getIsoCorr(phoAbsSCEta_, rho_, 0) - hcalIsoPtCorrMap.getIsoCorr(phoAbsSCEta_, phoPt_, 1);
+  phoTkrIsoCorr_             = phoTrkSumPtHollowConeDR03_ - tkrIsoRhoCorrMap.getIsoCorr(phoAbsSCEta_, rho_, 1);
+  phoHoverE_                 = _phoHoverE[_phoIndex];
+  phoPFChIso_                = _phoPFChIso[_phoIndex];
+  phoPFPhoIso_               = _phoPFPhoIso[_phoIndex];
+  phoPFNeuIso_               = _phoPFNeuIso[_phoIndex];
+  phoPFChWorstIso_           = _phoPFChWorstIso[_phoIndex];
+  phoIDMVA_                  = _phoIDMVA[_phoIndex];
+  phoIDbit_                  = _phoIDbit[_phoIndex];
+  phoMIP_                    = _phoMIPTotEnergy[_phoIndex];
+
+  phoSCet_                   = (_ecalSC_En[phoSCindex]) / std::cosh(phoSCeta_);
+  phoSCrawet_                = (_ecalSC_RawEn[phoSCindex]) / std::cosh(phoSCeta_);
+  phoSCphi_                  = _ecalSC_phi[phoSCindex];
+  phoSCEn_                   = _ecalSC_En[phoSCindex];
+  phoSCRawEn_                = _ecalSC_RawEn[phoSCindex];
+  phoEtaWidth_               = _ecalSC_etaWidth[phoSCindex];
+  phoPhiWidth_               = _ecalSC_phiWidth[phoSCindex];
+  phoEtaWOPhiWFull5x5_       = _ecalSC_etaWidth[phoSCindex] / _ecalSC_phiWidth[phoSCindex];
+
+  phoPFClusIDbits_           = 0;
+
+  phoBDTpred_ = getPhoBDTScore(_phoIndex);
+
+
+// EB
+// ============================================================Current Best Cuts============================================================
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// |     Seff     |    SeffErr   |     Beff     |    BeffErr   |     BDT>     |     HoE<     |   ECALiso<   |   HCALIso<   |    TkrIso<   |
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// |         0.91 |  0.000521333 |   0.00615482 |  4.09481e-05 |     0.875059 |     0.055295 |      6.50152 |      30.7591 |      5.97259 |
+// ----------------------------------------------------------------------------------------------------------------------------------------
+
+// EBv6
+// ============================================================Optimum Cuts============================================================
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// |     Seff     |    SeffErr   |     Beff     |    BeffErr   |     BDT>     |     HoE<     |   ECALiso<   |   HCALIso<   |    TkrIso<   |
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// |     0.910005 |  0.000510985 |   0.00581197 |  3.88379e-05 |     0.870675 |     0.037256 |      4.45951 |      14.9997 |      4.92638 |
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// ====================================================================================================================================
+
+
+// EBv7
+// ============================================================Optimum Cuts============================================================
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// |     Seff     |    SeffErr   |     Beff     |    BeffErr   |     BDT>     |     HoE<     |   ECALiso<   |   HCALIso<   |    TkrIso<   |
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// |     0.910002 |  0.000523539 |   0.00553992 |  3.79748e-05 |     0.871086 |     0.060336 |      5.93354 |      27.4411 |      4.79926 |
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// ====================================================================================================================================
+
+
+// EBv12
+// ============================================================Optimum Cuts============================================================
+// -------------------------------------------------------------------------------------------------------------------------------------------------------
+// |     Seff     | SeffFlatness |     Beff     |    BeffErr   |     BDT>     |     HoE<     |   ECALiso<   |   HCALIso<   |    TkrIso<   |   Iteration  |
+// -------------------------------------------------------------------------------------------------------------------------------------------------------
+// |     0.884001 |  0.000249623 |   0.00487807 |  1.58363e-05 |     0.919954 |     0.034595 |      6.64946 |      1000.08 |      4.42568 |           11 |
+// -------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+// EE
+// ============================================================Current Best Cuts============================================================
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// |     Seff     |    SeffErr   |     Beff     |    BeffErr   |     BDT>     |     HoE<     |   ECALiso<   |   HCALIso<   |    TkrIso<   |
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// |     0.910004 |   0.00691048 |   0.00767314 |   0.00022373 |     0.702942 |    0.0247203 |      5.18328 |      32.5139 |       4.2576 |
+// ----------------------------------------------------------------------------------------------------------------------------------------
+
+
+// EEv7
+// ============================================================Optimum Cuts============================================================
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// |     Seff     |    SeffErr   |     Beff     |    BeffErr   |     BDT>     |     HoE<     |   ECALiso<   |   HCALIso<   |    TkrIso<   |
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// |     0.910013 |   0.00600362 |   0.00675337 |   0.00014457 |     0.762057 |    0.0381547 |        4.905 |      32.3576 |      2.93661 |
+// ----------------------------------------------------------------------------------------------------------------------------------------
+// ====================================================================================================================================
+
+
+
+  if (isEBevent_) {
+
+    // passBDTid_ = (phoBDTpred_ > 0.8751 && phoHoverE_ < 0.0553 &&  phoPFECALClusIsoCorr_ < 6.50 && phoPFHCALClusIsoCorr_ < 30.76 && phoTkrIsoCorr_ < 5.97);
+    passBDTid_ = (phoBDTpred_ > 0.92 && phoHoverE_ <  0.0346 &&  phoPFECALClusIsoCorr_ <  6.65 && phoTkrIsoCorr_ < 4.43);
+    passSieieId_ = (phoSigmaIEtaIEta_ < 0.01141 && phoHoverE_ < 0.04419 &&  phoPFECALClusIsoCorr_ < 3.27 && phoPFHCALClusIsoCorr_ < 8.42 && phoTkrIsoCorr_ < 3.26);
+
+  } else {
+
+    passBDTid_ = (phoBDTpred_ > 0.762 && phoHoverE_ < 0.038 &&  phoPFECALClusIsoCorr_ < 4.91 && phoPFHCALClusIsoCorr_ < 32.36 && phoTkrIsoCorr_ < 2.94);
+    passSieieId_ = (phoSigmaIEtaIEta_ < 0.02625 && phoHoverE_ < 0.03939 &&  phoPFECALClusIsoCorr_ < 7.91 && phoPFHCALClusIsoCorr_ < 19.63 && phoTkrIsoCorr_ < 4.52);
+
+  }
+
+  if (passBDTid_) setBit(phoPFClusIDbits_, 0, 1);
+  if (passSieieId_) setBit(phoPFClusIDbits_, 1, 1);
+
+
+
+  lepVeto_ = 0;
+
+
+  //// Look for muon
+  Short_t highetsPtMuIndex = -999;
+  Float_t highestMuPt      = -999.;
+  hasMuon_                 = 0;
+  nMuCands_          = 0;
+
+  for (Int_t iMu = 0; iMu < (_nMu); iMu++) {
+    if (_muPt[iMu] < 30.) continue;
+    if (std::abs(_muEta[iMu]) > 2.4) continue;
+    if (!getBit((_muIDbit[iMu]), 3)) continue;    //// 3=tightID
+    if (!getBit((_muIDbit[iMu]), 9)) continue;    //// 9=tightIso
+
+    nMuCands_++;
+
+    if (_muPt[iMu] > highestMuPt) {
+      highestMuPt = _muPt[iMu];
+      highetsPtMuIndex = iMu;
+    }
+  }
+
+  if (highetsPtMuIndex > -1) hasMuon_ = 1;
+
+  if (nMuCands_ > 1) setBit(lepVeto_, 0, 1);
+
+  //// Look for electron
+  Short_t highetsPtEleIndex = -999;
+  Float_t highestElePt      = -999.;
+  hasElectron_              = 0;
+  nEleCands_          = 0;
+
+  for (Int_t iEle = 0; iEle < (_nEle); iEle++) {
+    if (_eleCalibPt[iEle] < 30.) continue;
+    if (std::abs(_eleEta[iEle]) > 2.5) continue;
+    if (!getBit((_eleIDbit[iEle]), 3)) continue;    //// 3=tight ID
+
+    nEleCands_++;
+
+    if (_eleCalibPt[iEle] > highestElePt) {
+      highestElePt = _eleCalibPt[iEle];
+      highetsPtEleIndex = iEle;
+    }
+  }
+
+  if (highetsPtEleIndex > -1) hasElectron_ = 1;
+
+  if (nEleCands_ > 1) setBit(lepVeto_, 1, 1);
+
+  //// lepton = muon / electron
+  //// event not of interest when both present
+
+  lepPt_  = -99999;
+  lepEta_ = -99999;
+  lepPhi_ = -99999;
+
+  if (hasMuon_) {
+
+    lepPt_  = _muPt[highetsPtMuIndex];
+    lepEta_ = _muEta[highetsPtMuIndex];
+    lepPhi_ = _muPhi[highetsPtMuIndex];
+
+  } else if (hasElectron_) {
+
+    lepPt_  = _eleCalibPt[highetsPtEleIndex];
+    lepEta_ = _eleEta[highetsPtEleIndex];
+    lepPhi_ = _elePhi[highetsPtEleIndex];
+
+  }
+
+  hasLep_   = (hasMuon_ || hasElectron_);
+
+
+  //// veto electrons
+  Int_t eleVetoIndex = -999;
+  for (Int_t i = 0; i < _nEle; i++) {
+    if (i == highetsPtEleIndex) continue;
+    if ((_eleCalibPt[i]) < 10.) continue;
+    if (std::abs(_eleEta[i]) > 2.5) continue;
+    if (!getBit((_eleIDbit[i]), 1)) continue; //loose ID
+    setBit(lepVeto_, 2, 1);
+    eleVetoIndex = i;
+    break;
+  }
+
+
+
+  //// veto muons
+  Int_t muVetoIndex = -999;
+  for (Int_t i = 0; i < (_nMu); i++) {
+    if (i == highetsPtMuIndex) continue;
+    if ((_muPt[i]) < 20.) continue;
+    if (std::abs(_muEta[i]) > 2.4) continue;
+    if (!getBit((_muIDbit[i]), 0) || !getBit((_muIDbit[i]), 7)) continue;// 0=loose ID,7=loose Iso
+    setBit(lepVeto_, 3, 1);
+    muVetoIndex = i;
+    break;
+  }
+
+
+
+  //// veto taus
+  Int_t tauVetoIndex = -999;
+  for (Int_t i = 0; i < (_nTau); i++) {
+    if ((_tauPt[i]) < 20.) continue;
+    if (std::abs(_tauEta[i]) > 2.3) continue;
+    if ((_tauDMs[i][0] == 5) || (_tauDMs[i][0] == 6)) continue; //veto DM 5 & 6 with decayModeFindingNEW
+    UInt_t tmpTauIDbit = _tauIDbitsDeepTau2017v2p1[i];
+    //// 3 = byLooseDeepTau2017v2p1VSjet, 11 = byLooseDeepTau2017v2p1VSe, 17 = byLooseDeepTau2017v2p1VSmu
+    if (!getBit(tmpTauIDbit, 3) || !getBit((tmpTauIDbit), 11) || !getBit((tmpTauIDbit), 17)) continue;
+    setBit(lepVeto_, 4, 1);
+    tauVetoIndex = i;
+    break;
+  }
+
+  //// CHS MET
+  pfMET_                          = _pfMET;
+  pfMETPhi_                       = _pfMETPhi;
+  pfMETSig_                       = _pfMET_metSig;
+  pfMETEtSig_                     = _pfMET_EtSig;
+
+  deltaPhiPFmetPho_               = deltaPhi(pfMETPhi_, phoPhi_);
+  mTphoPFmet_                     = std::sqrt(2. * phoPt_ * pfMET_ * (1. - std::cos(deltaPhiPFmetPho_)));
+  phoPtOverPFmet_                 = phoPt_ / pfMET_;
+
+
+  //// PUPPI MET
+  puppiMET_                       = _puppiMET;
+  puppiMETPhi_                    = _puppiMETPhi;
+  puppiMETSig_                    = _puppiMET_metSig;
+  puppiMETEtSig_                  = _puppiMET_EtSig;
+
+  deltaPhiPUPPImetPho_            = deltaPhi(puppiMETPhi_, phoPhi_);
+  mTphoPUPPImet_                  = std::sqrt(2. * phoPt_ * puppiMET_ * (1. - std::cos(deltaPhiPUPPImetPho_)));
+  phoPtOverPUPPImet_              = phoPt_ / puppiMET_;
+
+
+  deltaRPhoLep_ = -99999;
+  lepPFmetRecoilPt_               = -9999;
+  lepPFmetRecoilPhi_              = -9999;
+  deltaPhiPFRecoilPho_            = -9999;
+  deltaPhiLepPFmet_               = -9999;
+  mTLepPFmet_                     = -9999;
+  lepPUPPImetRecoilPt_               = -9999;
+  lepPUPPImetRecoilPhi_              = -9999;
+  deltaPhiPUPPIRecoilPho_            = -9999;
+  deltaPhiLepPUPPImet_               = -9999;
+  mTLepPUPPImet_                     = -9999;
+
+  phoPtOverLepPFmetRecoilPt_        =   -9999;
+  phoPtOverLepPUPPImetRecoilPt_     =   -9999;
+
+  if (hasLep_) {
+
+    deltaRPhoLep_ = deltaR(phoEta_, phoPhi_, lepEta_, lepPhi_);
+
+    Float_t     lepPFmetRecoilPx    = _pfMET * std::cos(_pfMETPhi) + lepPt_ * std::cos(lepPhi_);
+    Float_t     lepPFmetRecoilPy    = _pfMET * std::sin(_pfMETPhi) + lepPt_ * std::sin(lepPhi_);
+
+    lepPFmetRecoilPt_               = std::sqrt(lepPFmetRecoilPx * lepPFmetRecoilPx + lepPFmetRecoilPy * lepPFmetRecoilPy);
+    lepPFmetRecoilPhi_              = atan2(lepPFmetRecoilPy, lepPFmetRecoilPx);
+    deltaPhiPFRecoilPho_            = deltaPhi(phoPhi_, lepPFmetRecoilPhi_);
+    deltaPhiLepPFmet_               = deltaPhi(lepPhi_, _pfMETPhi);
+    mTLepPFmet_                     = std::sqrt(2. * lepPt_ * _pfMET * (1. - std::cos(deltaPhiLepPFmet_)));
+
+
+    Float_t     lepPUPPImetRecoilPx = puppiMET_ * std::cos(puppiMETPhi_) + lepPt_ * std::cos(lepPhi_);
+    Float_t     lepPUPPImetRecoilPy = puppiMET_ * std::sin(puppiMETPhi_) + lepPt_ * std::sin(lepPhi_);
+
+    lepPUPPImetRecoilPt_            = std::sqrt(lepPUPPImetRecoilPx * lepPUPPImetRecoilPx + lepPUPPImetRecoilPy * lepPUPPImetRecoilPy);
+    lepPUPPImetRecoilPhi_           = atan2(lepPUPPImetRecoilPy, lepPUPPImetRecoilPx);
+    deltaPhiPUPPIRecoilPho_         = deltaPhi(phoPhi_, lepPUPPImetRecoilPhi_);
+    deltaPhiLepPUPPImet_            = deltaPhi(lepPhi_, puppiMETPhi_);
+    mTLepPUPPImet_                  = std::sqrt(2. * lepPt_ * puppiMET_ * (1. - std::cos(deltaPhiLepPUPPImet_)));
+
+    phoPtOverLepPFmetRecoilPt_      = phoPt_/lepPFmetRecoilPt_;
+    phoPtOverLepPUPPImetRecoilPt_   = phoPt_/lepPUPPImetRecoilPt_;
+  }
+
+
+
+
+
+  //// CHS Jets
+  nCHSJet30_                      = 0.001;
+  CHSJetHt30_                     = 0.;
+  minDeltaRPhoCHSJet30_           = 99999999.;
+  minDeltaRLepCHSJet30_           = 99999999.;
+
+  std::vector<std::pair<UShort_t, Float_t>> chsJetsOrdered;
+  for (UShort_t iJet = 0; iJet < _nAK4CHSJet; iJet++) {
+
+    if (_AK4CHSJet_Pt[iJet] < 30.) continue;
+
+    if (std::abs(_AK4CHSJet_Eta[iJet]) > 5.) continue;
+
+    Char_t iJetPUID = _AK4CHSJet_PUFullID[iJet];
+    if (!getBit(iJetPUID, 0) && _AK4CHSJet_Pt[iJet] < 50) continue;       //// loose PU ID
+
+    Char_t iJetID = _AK4CHSJet_ID[iJet];
+    if (!getBit(iJetID, 1)) continue;       //// tight ID
+
+    nCHSJet30_++;
+    CHSJetHt30_ += _AK4CHSJet_Pt[iJet];
+
+    Float_t iJetDeltaRPhoJet  = deltaR(phoEta_, phoPhi_, _AK4CHSJet_Eta[iJet], _AK4CHSJet_Phi[iJet]);
+
+    if (iJetDeltaRPhoJet < minDeltaRPhoCHSJet30_) {
+      minDeltaRPhoCHSJet30_ = iJetDeltaRPhoJet;
+    }
+
+    Float_t   iCHSJetLepDeltaR = 999999.;
+
+    if (hasLep_) {
+      iCHSJetLepDeltaR = deltaR(lepEta_, lepPhi_, _AK4CHSJet_Eta[iJet], _AK4CHSJet_Phi[iJet]);
+
+      if (iCHSJetLepDeltaR < minDeltaRLepCHSJet30_) {
+        minDeltaRLepCHSJet30_ = iCHSJetLepDeltaR;
+      }
+    }
+
+    if (iJetDeltaRPhoJet < 0.4) continue;
+    if (iCHSJetLepDeltaR < 0.4) continue;
+
+    chsJetsOrdered.push_back(std::make_pair(iJet, _AK4CHSJet_Pt[iJet]));
+  };
+
+
+  std::sort(chsJetsOrdered.rbegin(), chsJetsOrdered.rend());
+
+
+  minDeltaPhiPFmetJet30_    = 99999999.;
+  minDeltaPhiPFRecoilJet30_ = 99999999.;
+
+  for (UShort_t iJet = 0; iJet < chsJetsOrdered.size(); iJet++) {
+
+    Float_t iJetDeltaPhiMETJet  = deltaPhi(_pfMETPhi, _AK4CHSJet_Phi[chsJetsOrdered[iJet].first]);
+
+
+    if (iJetDeltaPhiMETJet < minDeltaPhiPFmetJet30_) {
+      minDeltaPhiPFmetJet30_ = iJetDeltaPhiMETJet;
+    }
+
+    if (hasLep_) {
+
+      Float_t iJetDeltaPhiRecoilJet   = deltaPhi(lepPFmetRecoilPhi_, _AK4CHSJet_Phi[chsJetsOrdered[iJet].first]);
+
+      if (iJetDeltaPhiRecoilJet < minDeltaPhiPFRecoilJet30_) {
+        minDeltaPhiPFRecoilJet30_ = iJetDeltaPhiRecoilJet;
+      }
+    }
+  }
+
+
+  //// PUPPI Jets
+  nPUPPIJet30_            = 0.001;
+  PUPPIJetHt30_           = 0.;
+  minDeltaRLepPUPPIJet30_ = 99999;
+  minDeltaRPhoPUPPIJet30_ = 99999999.;
+
+  std::vector<std::pair<UShort_t, Float_t>> puppiJetsOrdered;
+  for (UShort_t iJet = 0; iJet < _nAK4PUPPIJet; iJet++) {
+
+    if (_AK4PUPPIJet_Pt[iJet] < 30.) continue;
+
+    if (std::abs(_AK4PUPPIJet_Eta[iJet]) > 5.) continue;
+
+    Char_t iJetID = _AK4PUPPIJet_ID[iJet];
+    if (!getBit(iJetID, 1)) continue;       //// tight ID
+
+    nPUPPIJet30_++;
+    PUPPIJetHt30_ += _AK4PUPPIJet_Pt[iJet];
+
+    Float_t iJetDeltaRPhoJet  = deltaR(phoEta_, phoPhi_, _AK4PUPPIJet_Eta[iJet], _AK4PUPPIJet_Phi[iJet]);
+
+    if (iJetDeltaRPhoJet < minDeltaRPhoPUPPIJet30_) {
+      minDeltaRPhoPUPPIJet30_ = iJetDeltaRPhoJet;
+    }
+
+    Float_t   iPUPPIJetLepDeltaR = 999999.;
+
+    if (hasLep_) {
+      iPUPPIJetLepDeltaR = deltaR(lepEta_, lepPhi_, _AK4PUPPIJet_Eta[iJet], _AK4PUPPIJet_Phi[iJet]);
+
+      if (iPUPPIJetLepDeltaR < minDeltaRLepPUPPIJet30_) {
+        minDeltaRLepPUPPIJet30_ = iPUPPIJetLepDeltaR;
+      }
+    }
+
+    if (iJetDeltaRPhoJet < 0.4) continue;
+    if (iPUPPIJetLepDeltaR < 0.4) continue;
+
+    puppiJetsOrdered.push_back(std::make_pair(iJet, _AK4PUPPIJet_Pt[iJet]));
+  };
+
+
+  std::sort(puppiJetsOrdered.rbegin(), puppiJetsOrdered.rend());
+
+  minDeltaPhiPUPPImetJet30_    = 99999999.;
+  minDeltaPhiPUPPIRecoilJet30_ = 99999999.;
+
+  for (UShort_t iJet = 0; iJet < puppiJetsOrdered.size(); iJet++) {
+
+    Float_t iJetDeltaPhiMETJet  = deltaPhi(puppiMETPhi_, _AK4PUPPIJet_Phi[puppiJetsOrdered[iJet].first]);
+
+
+    if (iJetDeltaPhiMETJet < minDeltaPhiPUPPImetJet30_) {
+      minDeltaPhiPUPPImetJet30_ = iJetDeltaPhiMETJet;
+    }
+
+
+    if (hasLep_) {
+
+      Float_t iJetDeltaPhiRecoilJet   = deltaPhi(lepPUPPImetRecoilPhi_, _AK4PUPPIJet_Phi[puppiJetsOrdered[iJet].first]);
+
+      if (iJetDeltaPhiRecoilJet < minDeltaPhiPUPPIRecoilJet30_) {
+
+        minDeltaPhiPUPPIRecoilJet30_ = iJetDeltaPhiRecoilJet;
+
+      }
+    }
+  }
+
+
+
+  //// MC-only variables
+  if (isMC) {
+    puTrue_         = _puTrue;
+
+    phoGenBits_       = 0;
+
+    Short_t iPhoGenIndex = photonIsTrue(_phoIndex, 0.2, -10, 10);
+    if (iPhoGenIndex < 0) iPhoGenIndex = nearestFinalGen(_phoIndex, 0.2);
+
+    if (iPhoGenIndex > -1) {
+
+      setBit(phoGenBits_, 0, 1);
+
+      genStatusFlag_            = _mcStatusFlag[iPhoGenIndex];
+      genStatus_                = _mcStatus[iPhoGenIndex];
+      deltaRgenPho_             = deltaR(_mcEta[iPhoGenIndex], _mcPhi[iPhoGenIndex], phoEta_, phoPhi_);
+      relDeltaPtGenPho_         = (_phoCalibEt[_phoIndex] - _mcPt[iPhoGenIndex]) / _mcPt[iPhoGenIndex];
+      deltaRPt_                 = std::sqrt(deltaRgenPho_ * deltaRgenPho_ + relDeltaPtGenPho_ * relDeltaPtGenPho_);
+      genPDGid_                 = _mcPID[iPhoGenIndex];
+      genPromptStatusType_      = _mcPromptStatusType[iPhoGenIndex];
+      genDeltaPhiMETpho_        = deltaPhi(_mcPhi[iPhoGenIndex], _genMETPhi);
+      genPhoPtOverMet_          = _mcPt[iPhoGenIndex] / _genMET;
+      pfOgen_DeltaPhiMETpho_    = deltaPhiPFmetPho_ / genDeltaPhiMETpho_;
+      pfOgen_PhoPtOverMet_      = phoPtOverPFmet_ / genPhoPtOverMet_;
+      puppiOgen_DeltaPhiMETpho_ = deltaPhiPUPPImetPho_/ genDeltaPhiMETpho_;
+      puppiOgen_PhoPtOverMet_   = phoPtOverPUPPImet_ / genPhoPtOverMet_;
+      puppiMgen_DeltaPhiMETpho_ = deltaPhiPFmetPho_ - genDeltaPhiMETpho_;
+      pfMgen_DeltaPhiMETpho_    = deltaPhiPUPPImetPho_ - genDeltaPhiMETpho_;
+
+      pfMgen_PhoPtOverMet_    = phoPtOverPFmet_ - genPhoPtOverMet_;
+      puppiMgen_PhoPtOverMet_ = phoPtOverPUPPImet_ - genPhoPtOverMet_;
+
+
+    } else {
+
+      genStatusFlag_            = 9999;
+      genStatus_                = -9999;
+      deltaRgenPho_             = -9999;
+      relDeltaPtGenPho_         = -9999;
+      deltaRPt_                 = -9999;
+      genPDGid_                 = -9999;
+      genPromptStatusType_      = -99;
+      genDeltaPhiMETpho_        = 99999999;
+      genPhoPtOverMet_          = -9999;
+      pfOgen_DeltaPhiMETpho_    = -9999;
+      pfOgen_PhoPtOverMet_      = -9999;
+      puppiOgen_DeltaPhiMETpho_ = -999;
+      puppiOgen_PhoPtOverMet_   = -999;
+      puppiMgen_DeltaPhiMETpho_ = -999;
+      pfMgen_DeltaPhiMETpho_ = -999;
+
+      pfMgen_PhoPtOverMet_ = -999;
+      puppiMgen_PhoPtOverMet_ = -999;
+    }
+
+
+    lhePhoPt_               = -999;
+    Wsign_                  = 0;
+    lepSign_                = 0;
+
+    for (UInt_t iLHE = 0 ; iLHE < _lhePID.size(); iLHE++) {
+      if ((_lhePID[iLHE] == 22) && (_lheStatus[iLHE] == 1) && (lhePhoPt_ < _lhePt[iLHE])) lhePhoPt_ = _lhePt[iLHE];
+      if (std::abs(_lhePID[iLHE]) == 24) Wsign_ = _lhePID[iLHE];
+      UInt_t absLHEpid = std::abs(_lhePID[iLHE]);
+      if ((absLHEpid == 11) || (absLHEpid == 13) || (absLHEpid == 15)) lepSign_ = _lhePID[iLHE];
+    }
+
+
+    lepGenPID_                   = -999;
+    genDeltaPhiRecoilPho_        = 99999999;
+    pfOgen_DeltaPhiRecoilPho_    = -999;
+    puppiOgen_DeltaPhiRecoilPho_ = -999;
+    genMtLepMet_                 = -999;
+    pfOgen_MtLepMet_             = -999;;
+    puppiOgen_MtLepMet_          = -999;;
+    puppiMgen_DeltaPhiRecoilPho_ = -999;
+    pfMgen_DeltaPhiRecoilPho_    = -999;
+
+    Short_t   iGenLep            = -999;
+    if (hasMuon_) iGenLep = nearestFinalGen(lepEta_, lepPhi_, 0.2, 1, 13, 1);
+    else if (hasElectron_) iGenLep = nearestFinalGen(lepEta_, lepPhi_, 0.2, 1, 11, 1);
+    if (iGenLep < 0)  iGenLep = nearestFinalGen(lepEta_, lepPhi_, 0.2, 0);
+
+    if (iGenLep > -1) {
+
+      lepGenPID_ = _mcPID[iGenLep];
+      genMtLepMet_                  = std::sqrt(2. * _mcPt[iGenLep] * _genMET * (1. - std::cos(deltaPhi(_mcPhi[iGenLep], _genMETPhi))));
+      pfOgen_MtLepMet_              = mTLepPFmet_ / genMtLepMet_;
+      puppiOgen_MtLepMet_           = mTLepPUPPImet_ / genMtLepMet_;
+
+      if (iPhoGenIndex >-1) {
+
+        Float_t     gen_lepMetRecoilPx  = _genMET * std::cos(_genMETPhi) + _mcPt[iGenLep] * std::cos(_mcPhi[iGenLep]);
+        Float_t     gen_lepPMetRecoilPy = _genMET * std::sin(_genMETPhi) + _mcPt[iGenLep] * std::sin(_mcPhi[iGenLep]);
+
+        genDeltaPhiRecoilPho_           = deltaPhi(atan2(gen_lepPMetRecoilPy, gen_lepMetRecoilPx), _mcPhi[iPhoGenIndex]);
+
+        pfOgen_DeltaPhiRecoilPho_       = deltaPhiPFRecoilPho_ / genDeltaPhiRecoilPho_;
+        puppiOgen_DeltaPhiRecoilPho_    = deltaPhiPUPPIRecoilPho_/ genDeltaPhiRecoilPho_;
+
+        puppiMgen_DeltaPhiRecoilPho_    = deltaPhiPFRecoilPho_ - genDeltaPhiRecoilPho_;
+        pfMgen_DeltaPhiRecoilPho_       = deltaPhiPUPPIRecoilPho_ - genDeltaPhiRecoilPho_;
+      }
+    }
+
+    pfMET_O_gen_met_        = _pfMET/_genMET;
+    pfMET_O_gen_met_Phi_    = _pfMETPhi/_genMETPhi;
+    pfMET_M_gen_met_Phi_    = deltaPhi(_pfMETPhi, _genMETPhi);
+
+    puppiMET_O_gen_met_     = _puppiMET/_genMET;
+    puppiMET_O_gen_met_Phi_ = _puppiMETPhi/_genMETPhi;
+    puppiMET_M_gen_met_Phi_ = deltaPhi(_puppiMETPhi, _genMETPhi);
+
+    phoIdSF_ = 1.;
+    phoPixelVetoSF_ = 1;
+    if (isEBevent_) phoPixelVetoSF_ = pixelVetoSF.getSF(0.5);
+    else  phoPixelVetoSF_ = pixelVetoSF.getSF(3.5);
+
+
+    lepIdSF_ = 1.;
+    if (hasMuon_) {
+
+      Float_t absLepEta = std::abs(lepEta_);
+      lepIdSF_ = muonCandIdSF.getSF(absLepEta, lepPt_) * muonCandIsoSF.getSF(absLepEta, lepPt_);
+
+    } else if (hasElectron_) {
+
+      lepIdSF_ = eleCandSF.getSF(_ecalSC_eta[_eleDirectEcalSCindex[highetsPtEleIndex]], lepPt_);
+
+    }
+
+    //// veto SF = (1-SF x epsilonMC) / (1-epsilonMC)
+    eleVetoSF_ = 1.;
+    if (eleVetoIndex > -1) {
+      Float_t tmpVetoIdEffMC = eleVetoIDEffMC.getSF(_ecalSC_eta[_eleDirectEcalSCindex[eleVetoIndex]], _elePt[eleVetoIndex]);
+      eleVetoSF_ = (1. - eleVetoSF.getSF(_ecalSC_eta[_eleDirectEcalSCindex[eleVetoIndex]], _elePt[eleVetoIndex]) * tmpVetoIdEffMC)/ (1 - tmpVetoIdEffMC);
+    }
+
+    muVetoSF_               = 1.;
+    if (muVetoIndex > -1) {
+      Float_t absLepVetoEta = std::abs(_muEta[muVetoIndex]);
+      Float_t tmpVetoIdEffMC = muonVetoIdMCeff.getSF(absLepVetoEta, _muPt[muVetoIndex]) * muonVetoIsoMCeff.getSF(absLepVetoEta, _muPt[muVetoIndex]);
+      muVetoSF_ = (1. - muonVetoIdSF.getSF(absLepVetoEta, _muPt[muVetoIndex]) *  muonVetoIsoSF.getSF(absLepVetoEta, _muPt[muVetoIndex]) * tmpVetoIdEffMC)/ (1 - tmpVetoIdEffMC);
+    }
+
+
+    tauVetoSF_              = 1.;
+  }
+
+  return 1;
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Bool_t genPhoFinderPostTraining::initNtuples(std::string FILELIST) {
+
+  inputTree = openTChain(FILELIST, "ggNtuplizer/EventTree");
+  if (!inputTree) return 0;
+  inputTTreeReader.SetTree(inputTree);
+
+  std::cout << "**************************************************************************************************************************************************************" << std::endl <<
+            "Initializing branches in input ntuples..." << std::endl;
+
+  _run.set(inputTTreeReader, "run");
+  _event.set(inputTTreeReader, "event");
+  _lumis.set(inputTTreeReader, "lumis");
+  _beamHaloSummary.set(inputTTreeReader, "beamHaloSummary");
+  _metFilters.set(inputTTreeReader, "metFilters");
+  _nVtx.set(inputTTreeReader, "nVtx");
+  _rho.set(inputTTreeReader, "rho");
+  _HLTPho.set(inputTTreeReader, "HLTPho");
+  if (isMC) {
+    _puTrue.set(inputTTreeReader, "puTrue");
+    _genWeight.set(inputTTreeReader, "genWeight");
+    _nMC.set(inputTTreeReader, "nMC");
+    _mcPID.set(inputTTreeReader, "mcPID");
+    _mcPt.set(inputTTreeReader, "mcPt");
+    _mcEta.set(inputTTreeReader, "mcEta");
+    _mcPhi.set(inputTTreeReader, "mcPhi");
+    _mcStatusFlag.set(inputTTreeReader, "mcStatusFlag");
+    _mcStatus.set(inputTTreeReader, "mcStatus");
+    _mcIndex.set(inputTTreeReader, "mcIndex");
+    _mcPromptStatusType.set(inputTTreeReader, "mcPromptStatusType");
+    _pho_gen_index.set(inputTTreeReader, "pho_gen_index");
+
+    _lhePID.set(inputTTreeReader, "lhePID");
+    _lhePt.set(inputTTreeReader, "lhePt");
+    _lheStatus.set(inputTTreeReader, "lheStatus");
+    _genMET.set(inputTTreeReader, "genMET");
+    _genMETPhi.set(inputTTreeReader, "genMETPhi");
+  }
+
+  _nPho.set(inputTTreeReader, "nPho");
+  _phoEt.set(inputTTreeReader, "phoEt");
+  _phoCalibEt.set(inputTTreeReader, "phoCalibEt");
+  _phoEta.set(inputTTreeReader, "phoEta");
+  _phoPhi.set(inputTTreeReader, "phoPhi");
+  _phoSeedTime.set(inputTTreeReader, "phoSeedTime");
+  _phoFiducialRegion.set(inputTTreeReader, "phoFiducialRegion");
+
+  _phoQualityBits.set(inputTTreeReader, "phoQualityBits");
+  _phoR9Full5x5.set(inputTTreeReader, "phoR9Full5x5");
+  _phoSigmaIEtaIEtaFull5x5.set(inputTTreeReader, "phoSigmaIEtaIEtaFull5x5");
+  _phoSigmaIEtaIPhiFull5x5.set(inputTTreeReader, "phoSigmaIEtaIPhiFull5x5");
+  _phoSigmaIPhiIPhiFull5x5.set(inputTTreeReader, "phoSigmaIPhiIPhiFull5x5");
+  _phoE2x2Full5x5.set(inputTTreeReader, "phoE2x2Full5x5");
+  _phoE5x5Full5x5.set(inputTTreeReader, "phoE5x5Full5x5");
+  _phoESEffSigmaRR.set(inputTTreeReader, "phoESEffSigmaRR");
+
+  _phoMaxEnergyXtal.set(inputTTreeReader, "phoMaxEnergyXtal");
+  _phoE2ndFull5x5.set(inputTTreeReader, "phoE2ndFull5x5");
+  _phoE1x3Full5x5.set(inputTTreeReader, "phoE1x3Full5x5");
+  _phoE1x5Full5x5.set(inputTTreeReader, "phoE1x5Full5x5");
+  _phoE2x5Full5x5.set(inputTTreeReader, "phoE2x5Full5x5");
+
+  _phoPFClusEcalIso.set(inputTTreeReader, "phoPFClusEcalIso");
+  _phoPFClusHcalIso.set(inputTTreeReader, "phoPFClusHcalIso");
+  _phoTrkSumPtSolidConeDR04.set(inputTTreeReader, "phoTrkSumPtSolidConeDR04");
+  _phoTrkSumPtHollowConeDR04.set(inputTTreeReader, "phoTrkSumPtHollowConeDR04");
+  _phoTrkSumPtSolidConeDR03.set(inputTTreeReader, "phoTrkSumPtSolidConeDR03");
+  _phoTrkSumPtHollowConeDR03.set(inputTTreeReader, "phoTrkSumPtHollowConeDR03");
+  _phoECALIso.set(inputTTreeReader, "phoECALIso");
+  _phoHCALIso.set(inputTTreeReader, "phoHCALIso");
+
+  _phoHoverE.set(inputTTreeReader, "phoHoverE");
+  _phoPFChIso.set(inputTTreeReader, "phoPFChIso");
+  _phoPFPhoIso.set(inputTTreeReader, "phoPFPhoIso");
+  _phoPFNeuIso.set(inputTTreeReader, "phoPFNeuIso");
+  _phoPFChWorstIso.set(inputTTreeReader, "phoPFChWorstIso");
+  _phoIDMVA.set(inputTTreeReader, "phoIDMVA");
+  _phoIDbit.set(inputTTreeReader, "phoIDbit");
+  _phoMIPTotEnergy.set(inputTTreeReader, "phoMIPTotEnergy");
+
+  _phoDirectEcalSCindex.set(inputTTreeReader, "phoDirectEcalSCindex");
+  _ecalSC_eta.set(inputTTreeReader, "ecalSC_eta");
+  _ecalSC_phi.set(inputTTreeReader, "ecalSC_phi");
+  _ecalSC_En.set(inputTTreeReader, "ecalSC_En");
+  _ecalSC_RawEn.set(inputTTreeReader, "ecalSC_RawEn");
+  _ecalSC_etaWidth.set(inputTTreeReader, "ecalSC_etaWidth");
+  _ecalSC_phiWidth.set(inputTTreeReader, "ecalSC_phiWidth");
+
+  _metFilters.set(inputTTreeReader, "metFilters");
+
+  _pfMET.set(inputTTreeReader, "pfMET");
+  _pfMETPhi.set(inputTTreeReader, "pfMETPhi");
+  _pfMET_metSig.set(inputTTreeReader, "pfMET_metSig");
+  _pfMET_EtSig.set(inputTTreeReader, "pfMET_EtSig");
+
+  _puppiMET.set(inputTTreeReader, "puppiMET");
+  _puppiMETPhi.set(inputTTreeReader, "puppiMETPhi");
+  _puppiMET_metSig.set(inputTTreeReader, "puppiMET_metSig");
+  _puppiMET_EtSig.set(inputTTreeReader, "puppiMET_EtSig");
+
+  _nEle.set(inputTTreeReader, "nEle");
+  _eleCalibPt.set(inputTTreeReader, "eleCalibPt");
+  _elePt.set(inputTTreeReader, "eleCalibPt");
+  _eleEta.set(inputTTreeReader, "eleEta");
+  _elePhi.set(inputTTreeReader, "elePhi");
+  _eleIDbit.set(inputTTreeReader, "eleIDbit");
+  _eleQualityBits.set(inputTTreeReader, "eleQualityBits");
+  _eleIDMVAIso.set(inputTTreeReader, "eleIDMVAIso");
+  _eleDirectEcalSCindex.set(inputTTreeReader, "eleDirectEcalSCindex");
+
+  _nMu.set(inputTTreeReader, "nMu");
+  _muPt.set(inputTTreeReader, "muPt");
+  _muEta.set(inputTTreeReader, "muEta");
+  _muPhi.set(inputTTreeReader, "muPhi");
+  _muIDbit.set(inputTTreeReader, "muIDbit");
+
+  _nTau.set(inputTTreeReader, "nTau");
+  _tauPt.set(inputTTreeReader, "tauPt");
+  _tauEta.set(inputTTreeReader, "tauEta");
+  _tauIDbitsDeepTau2017v2p1.set(inputTTreeReader, "tauIDbitsDeepTau2017v2p1");
+  _tauDMs.set(inputTTreeReader, "tauDMs");
+
+  _nAK4CHSJet.set(inputTTreeReader, "nAK4CHSJet");
+  _AK4CHSJet_Pt.set(inputTTreeReader, "AK4CHSJet_Pt");
+  _AK4CHSJet_Eta.set(inputTTreeReader, "AK4CHSJet_Eta");
+  _AK4CHSJet_Phi.set(inputTTreeReader, "AK4CHSJet_Phi");
+  _AK4CHSJet_PUFullID.set(inputTTreeReader, "AK4CHSJet_PUFullID");
+  _AK4CHSJet_ID.set(inputTTreeReader, "AK4CHSJet_ID");
+
+  _nAK4PUPPIJet.set(inputTTreeReader, "nAK4PUPPIJet");
+  _AK4PUPPIJet_Pt.set(inputTTreeReader, "AK4PUPPIJet_Pt");
+  _AK4PUPPIJet_Eta.set(inputTTreeReader, "AK4PUPPIJet_Eta");
+  _AK4PUPPIJet_Phi.set(inputTTreeReader, "AK4PUPPIJet_Phi");
+  _AK4PUPPIJet_ID.set(inputTTreeReader, "AK4PUPPIJet_ID");
+
+  _ntrgObjPho.set(inputTTreeReader, "ntrgObjPho");
+  _trgObjPhoBits1.set(inputTTreeReader, "trgObjPhoBits1");
+  _trgObjPhoBits2.set(inputTTreeReader, "trgObjPhoBits2");
+  _trgObjPhoBits3.set(inputTTreeReader, "trgObjPhoBits3");
+  _trgObjPhoBits4.set(inputTTreeReader, "trgObjPhoBits4");
+  _trgObjPhoPt.set(inputTTreeReader, "trgObjPhoPt");
+  _trgObjPhoEta.set(inputTTreeReader, "trgObjPhoEta");
+  _trgObjPhoPhi.set(inputTTreeReader, "trgObjPhoPhi");
+
+  std::cout << "Branches initialized!" << std::endl <<
+            "**************************************************************************************************************************************************************" << std::endl;
+  return 1;
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void genPhoFinderPostTraining::initEventType(eventType & evType, std::string typeName, std::string typeTitle) {
+
+  mkTFileDir(outFile, typeName);
+
+  evType.cutFlowCount = new TH1F((typeName + "cutFlowCount").c_str(), "Cut Flow (Unweighted)", CUTFLOWSTEPS, 0., (Float_t)CUTFLOWSTEPS);
+  evType.cutFlowGenWeight = new TH1F((typeName + "cutFlowGenWeight").c_str(), "Cut Flow (Gen Weighted)", CUTFLOWSTEPS, 0., (Float_t)CUTFLOWSTEPS);
+  evType.cutFlowCount->SetDirectory(outFile->GetDirectory(typeName.c_str()));
+  evType.cutFlowGenWeight->SetDirectory(outFile->GetDirectory(typeName.c_str()));
+
+  //////// initialize tree
+  evType.tree = new TTree((typeName + "Tree").c_str(), typeTitle.c_str());
+  evType.tree->SetDirectory(outFile->GetDirectory(typeName.c_str()));
+
+  evType.tree->Branch("run", &run_);
+  evType.tree->Branch("event", &event_);
+  evType.tree->Branch("lumis", &lumis_);
+  evType.tree->Branch("rho", &rho_);
+  evType.tree->Branch("nVtx", &nVtx_);
+  evType.tree->Branch("metFilters", &metFilters_);
+  evType.tree->Branch("beamHaloSummary", &beamHaloSummary_);
+  evType.tree->Branch("genWeight", &genWeight_);
+  evType.tree->Branch("puTrue", &puTrue_);
+  evType.tree->Branch("puWeight", &puWeight_);
+  evType.tree->Branch("genStatusFlag", &genStatusFlag_);
+  evType.tree->Branch("genStatus", &genStatus_);
+  evType.tree->Branch("deltaRgenPho", &deltaRgenPho_);
+  evType.tree->Branch("relDeltaPtGenPho", &relDeltaPtGenPho_);
+  evType.tree->Branch("deltaRPt", &deltaRPt_);
+  evType.tree->Branch("genPDGid", &genPDGid_);
+  evType.tree->Branch("mcPromptStatusType", &genPromptStatusType_);
+  evType.tree->Branch("lhePhoPt", &lhePhoPt_);
+  evType.tree->Branch("Wsign", &Wsign_);
+  evType.tree->Branch("lepSign", &lepSign_);
+  evType.tree->Branch("phoGenBits", &phoGenBits_);
+  evType.tree->Branch("isEBevent", &isEBevent_);
+  evType.tree->Branch("hasElectron", &hasElectron_);
+  evType.tree->Branch("hasMuon", &hasMuon_);
+  evType.tree->Branch("hasLep", &hasLep_);
+  evType.tree->Branch("nPhoCand", &nPhoCand_);
+  evType.tree->Branch("phoPt", &phoPt_);
+  evType.tree->Branch("phoEta", &phoEta_);
+  evType.tree->Branch("phoPhi", &phoPhi_);
+  evType.tree->Branch("phoFoldedPhi", &phoFoldedPhi_);
+  evType.tree->Branch("phoSeedTime", &phoSeedTime_);
+  evType.tree->Branch("deltaRTrigg", &deltaRTrigg_);
+  evType.tree->Branch("deltaPtTrigg", &deltaPtTrigg_);
+  evType.tree->Branch("phoQualityBits", &phoQualityBits_);
+  evType.tree->Branch("phoR9Full5x5", &phoR9Full5x5_);
+  evType.tree->Branch("phoS4Full5x5", &phoS4Full5x5_);
+  evType.tree->Branch("phoESEffSigmaRR", &phoESEffSigmaRR_);
+  evType.tree->Branch("phoEmaxOESCrFull5x5", &phoEmaxOESCrFull5x5_);
+  evType.tree->Branch("phoE2ndOESCrFull5x5", &phoE2ndOESCrFull5x5_);
+  evType.tree->Branch("phoE2ndOEmaxFull5x5", &phoE2ndOEmaxFull5x5_);
+  evType.tree->Branch("phoE1x3OESCrFull5x5", &phoE1x3OESCrFull5x5_);
+  evType.tree->Branch("phoE2x5OESCrFull5x5", &phoE2x5OESCrFull5x5_);
+  evType.tree->Branch("phoE5x5OESCrFull5x5", &phoE5x5OESCrFull5x5_);
+  evType.tree->Branch("phoEmaxOE3x3Full5x5", &phoEmaxOE3x3Full5x5_);
+  evType.tree->Branch("phoE2ndOE3x3Full5x5", &phoE2ndOE3x3Full5x5_);
+  evType.tree->Branch("pho2x2OE3x3Full5x5", &pho2x2OE3x3Full5x5_);
+  evType.tree->Branch("phoSigmaIEtaIEta", &phoSigmaIEtaIEta_);
+  evType.tree->Branch("phoSigmaIEtaIPhi", &phoSigmaIEtaIPhi_);
+  evType.tree->Branch("phoSigmaIPhiIPhi", &phoSigmaIPhiIPhi_);
+  evType.tree->Branch("phoEtaWidth", &phoEtaWidth_);
+  evType.tree->Branch("phoPhiWidth", &phoPhiWidth_);
+  evType.tree->Branch("phoSieieOSipipFull5x5", &phoSieieOSipipFull5x5_);
+  evType.tree->Branch("phoEtaWOPhiWFull5x5", &phoEtaWOPhiWFull5x5_);
+  evType.tree->Branch("phoMaxEnergyXtal", &phoMaxEnergyXtal_);
+  evType.tree->Branch("phoE2ndFull5x5", &phoE2ndFull5x5_);
+  evType.tree->Branch("phoE2x2Full5x5", &phoE2x2Full5x5_);
+  evType.tree->Branch("phoE3x3Full5x5", &phoE3x3Full5x5_);
+  evType.tree->Branch("phoE5x5Full5x5", &phoE5x5Full5x5_);
+  evType.tree->Branch("phoE1x3Full5x5", &phoE1x3Full5x5_);
+  evType.tree->Branch("phoE1x5Full5x5", &phoE1x5Full5x5_);
+  evType.tree->Branch("phoE2x5Full5x5", &phoE2x5Full5x5_);
+  evType.tree->Branch("phoPFClusEcalIso", &phoPFClusEcalIso_);
+  evType.tree->Branch("phoPFClusHcalIso", &phoPFClusHcalIso_);
+  evType.tree->Branch("phoTrkSumPtSolidConeDR04", &phoTrkSumPtSolidConeDR04_);
+  evType.tree->Branch("phoTrkSumPtHollowConeDR04", &phoTrkSumPtHollowConeDR04_);
+  evType.tree->Branch("phoTrkSumPtSolidConeDR03", &phoTrkSumPtSolidConeDR03_);
+  evType.tree->Branch("phoTrkSumPtHollowConeDR03", &phoTrkSumPtHollowConeDR03_);
+  evType.tree->Branch("phoECALIso", &phoECALIso_);
+  evType.tree->Branch("phoHCALIso", &phoHCALIso_);
+  evType.tree->Branch("phoPFECALClusIsoCorr", &phoPFECALClusIsoCorr_);
+  evType.tree->Branch("phoPFHCALClusIsoCorr", &phoPFHCALClusIsoCorr_);
+  evType.tree->Branch("phoTkrIsoCorr", &phoTkrIsoCorr_);
+  evType.tree->Branch("phoHoverE", &phoHoverE_);
+  evType.tree->Branch("phoPFChIso", &phoPFChIso_);
+  evType.tree->Branch("phoPFPhoIso", &phoPFPhoIso_);
+  evType.tree->Branch("phoPFNeuIso", &phoPFNeuIso_);
+  evType.tree->Branch("phoPFChWorstIso", &phoPFChWorstIso_);
+  evType.tree->Branch("phoEGMidMVA", &phoIDMVA_);
+  evType.tree->Branch("phoBDTpred", &phoBDTpred_);
+  evType.tree->Branch("phoIDbit", &phoIDbit_);
+  evType.tree->Branch("phoPFClusIDbits", &phoPFClusIDbits_);
+  evType.tree->Branch("passBDTid", &passBDTid_);
+  evType.tree->Branch("passSieieId", &passSieieId_);
+  evType.tree->Branch("phoMIP", &phoMIP_);
+  evType.tree->Branch("phoSCet", &phoSCet_);
+  evType.tree->Branch("phoSCrawet", &phoSCrawet_);
+  evType.tree->Branch("phoSCeta", &phoSCeta_);
+  evType.tree->Branch("phoAbsSCEta", &phoAbsSCEta_);
+  evType.tree->Branch("phoSCphi", &phoSCphi_);
+  evType.tree->Branch("phoSCEn", &phoSCEn_);
+  evType.tree->Branch("phoSCRawEn", &phoSCRawEn_);
+  evType.tree->Branch("lepVeto", &lepVeto_);
+  evType.tree->Branch("nMuCands", &nMuCands_);
+  evType.tree->Branch("nEleCands", &nEleCands_);
+  evType.tree->Branch("lepPt", &lepPt_);
+  evType.tree->Branch("lepEta", &lepEta_);
+  evType.tree->Branch("lepPhi", &lepPhi_);
+  evType.tree->Branch("lepGenPID", &lepGenPID_);
+  evType.tree->Branch("deltaRPhoLep", &deltaRPhoLep_);
+  evType.tree->Branch("genDeltaPhiRecoilPho", &genDeltaPhiRecoilPho_);
+  evType.tree->Branch("genDeltaPhiMETpho", &genDeltaPhiMETpho_);
+  evType.tree->Branch("genPhoPtOverMet", &genPhoPtOverMet_);
+  evType.tree->Branch("genMtLepMet", &genMtLepMet_);
+  evType.tree->Branch("pfMET", &pfMET_);
+  evType.tree->Branch("pfMETPhi", &pfMETPhi_);
+  evType.tree->Branch("pfMETSig", &pfMETSig_);
+  evType.tree->Branch("pfMETEtSig", &pfMETEtSig_);
+  evType.tree->Branch("pfOgen_MtLepMet", &pfOgen_MtLepMet_);
+  evType.tree->Branch("pfMET_O_gen_met", &pfMET_O_gen_met_);
+  evType.tree->Branch("pfMET_O_gen_met_Phi", &pfMET_O_gen_met_Phi_);
+  evType.tree->Branch("pfMET_M_gen_met_Phi", &pfMET_M_gen_met_Phi_);
+  evType.tree->Branch("pfOgen_DeltaPhiRecoilPho", &pfOgen_DeltaPhiRecoilPho_);
+  evType.tree->Branch("pfOgen_DeltaPhiMETpho", &pfOgen_DeltaPhiMETpho_);
+  evType.tree->Branch("pfOgen_PhoPtOverMet", &pfOgen_PhoPtOverMet_);
+  evType.tree->Branch("pfMgen_PhoPtOverMet", &pfMgen_PhoPtOverMet_);
+  evType.tree->Branch("pfMgen_DeltaPhiRecoilPho", &pfMgen_DeltaPhiRecoilPho_);
+  evType.tree->Branch("pfMgen_DeltaPhiMETpho", &pfMgen_DeltaPhiMETpho_);
+  evType.tree->Branch("deltaPhiPFmetPho", &deltaPhiPFmetPho_);
+  evType.tree->Branch("mTphoPFmet", &mTphoPFmet_);
+  evType.tree->Branch("phoPtOverPFmet", &phoPtOverPFmet_);
+  evType.tree->Branch("phoPtOverLepPFmetRecoilPt", &phoPtOverLepPFmetRecoilPt_);
+  evType.tree->Branch("phoPtOverLepPUPPImetRecoilPt", &phoPtOverLepPUPPImetRecoilPt_);
+  evType.tree->Branch("deltaPhiLepPFmet", &deltaPhiLepPFmet_);
+  evType.tree->Branch("mTLepPFmet", &mTLepPFmet_);
+  evType.tree->Branch("lepPFmetRecoilPt", &lepPFmetRecoilPt_);
+  evType.tree->Branch("lepPFmetRecoilPhi", &lepPFmetRecoilPhi_);
+  evType.tree->Branch("deltaPhiPFRecoilPho", &deltaPhiPFRecoilPho_);
+  evType.tree->Branch("minDeltaPhiPFRecoilJet30", &minDeltaPhiPFRecoilJet30_);
+  evType.tree->Branch("puppiMET", &puppiMET_);
+  evType.tree->Branch("puppiMETPhi", &puppiMETPhi_);
+  evType.tree->Branch("puppiMETSig", &puppiMETSig_);
+  evType.tree->Branch("puppiMETEtSig", &puppiMETEtSig_);
+  evType.tree->Branch("puppiOgen_MtLepMet", &puppiOgen_MtLepMet_);
+  evType.tree->Branch("puppiMET_O_gen_met", &puppiMET_O_gen_met_);
+  evType.tree->Branch("puppiMET_O_gen_met_Phi", &puppiMET_O_gen_met_Phi_);
+  evType.tree->Branch("puppiMgen_PhoPtOverMet", &puppiMgen_PhoPtOverMet_);
+  evType.tree->Branch("puppiOgen_DeltaPhiRecoilPho", &puppiOgen_DeltaPhiRecoilPho_);
+  evType.tree->Branch("puppiOgen_DeltaPhiMETpho", &puppiOgen_DeltaPhiMETpho_);
+  evType.tree->Branch("puppiOgen_PhoPtOverMet", &puppiOgen_PhoPtOverMet_);
+  evType.tree->Branch("puppiMET_M_gen_met_Phi", &puppiMET_M_gen_met_Phi_);
+  evType.tree->Branch("puppiMgen_DeltaPhiRecoilPho", &puppiMgen_DeltaPhiRecoilPho_);
+  evType.tree->Branch("puppiMgen_DeltaPhiMETpho", &puppiMgen_DeltaPhiMETpho_);
+  evType.tree->Branch("deltaPhiPUPPImetPho", &deltaPhiPUPPImetPho_);
+  evType.tree->Branch("mTphoPUPPImet", &mTphoPUPPImet_);
+  evType.tree->Branch("phoPtOverPUPPImet", &phoPtOverPUPPImet_);
+  evType.tree->Branch("deltaPhiLepPUPPImet", &deltaPhiLepPUPPImet_);
+  evType.tree->Branch("mTLepPUPPImet", &mTLepPUPPImet_);
+  evType.tree->Branch("lepPUPPImetRecoilPt", &lepPUPPImetRecoilPt_);
+  evType.tree->Branch("lepPUPPImetRecoilPhi", &lepPUPPImetRecoilPhi_);
+  evType.tree->Branch("deltaPhiPUPPIRecoilPho", &deltaPhiPUPPIRecoilPho_);
+  evType.tree->Branch("minDeltaPhiPUPPIRecoilJet30", &minDeltaPhiPUPPIRecoilJet30_);
+  evType.tree->Branch("nCHSJet30", &nCHSJet30_);
+  evType.tree->Branch("CHSJetHt30", &CHSJetHt30_);
+  evType.tree->Branch("minDeltaPhiPFmetJet30", &minDeltaPhiPFmetJet30_);
+  evType.tree->Branch("minDeltaRPhoCHSJet30", &minDeltaRPhoCHSJet30_);
+  evType.tree->Branch("minDeltaRLepCHSJet30", &minDeltaRLepCHSJet30_);
+  evType.tree->Branch("nPUPPIJet30", &nPUPPIJet30_);
+  evType.tree->Branch("PUPPIJetHt30", &PUPPIJetHt30_);
+  evType.tree->Branch("minDeltaPhiPUPPImetJet30", &minDeltaPhiPUPPImetJet30_);
+  evType.tree->Branch("minDeltaRPhoPUPPIJet30", &minDeltaRPhoPUPPIJet30_);
+  evType.tree->Branch("minDeltaRLepPUPPIJet30", &minDeltaRLepPUPPIJet30_);
+  evType.tree->Branch("phoIdSF", &phoIdSF_);
+  evType.tree->Branch("phoPixelVetoSF", &phoPixelVetoSF_);
+  evType.tree->Branch("lepIdSF", &lepIdSF_);
+  evType.tree->Branch("eleVetoSF", &eleVetoSF_);
+  evType.tree->Branch("muVetoSF", &muVetoSF_);
+  evType.tree->Branch("tauVetoSF", &tauVetoSF_);
+
+  std::cout << "Created output tree:\t" << typeName << "\t" << typeTitle << std::endl << std::endl;
+  //// evType.tree->Print();
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void genPhoFinderPostTraining::fillEventType(eventType & evType) {
+  evType.tree->Fill();
+
+  registerCutFlow(evType);
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void genPhoFinderPostTraining::registerAllCutFlow() {
+  registerCutFlow(fullECAL);
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Reset lastCutStep before each event
+void genPhoFinderPostTraining::registerCutFlow(eventType & evType) {
+  evType.cutFlowCount->Fill(evType.lastCutStep);
+  evType.cutFlowGenWeight->Fill(evType.lastCutStep, genWeight_);
+  evType.lastCutStep = evType.lastCutStep + 1.0;
+};
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#endif
