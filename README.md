@@ -5,11 +5,12 @@
 
 2.  Indentify the installation directory of XGBoost. 
 
-3. Include the xgboost library in your ROOT macro:
+3. Include the xgboost library and helper cc in your ROOT macro:
 
 		 R__ADD_INCLUDE_PATH(path_to_xgboost/include/xgboost/) 
 		 R__LOAD_LIBRARY(path_to_xgboost/lib/libxgboost.so) 
 		 #include <path_to_xgboost/include/xgboost/c_api.h>
+		 #include "helpers.cc"
 
 4. Load the BDT model and isolation corrections:
 		
@@ -22,7 +23,6 @@
 	    if(mLdSuccess !=0) std::cout<<"Failed to load model"<<std::endl;
 
 	    /// Isolation corrections
-		#include "helpers.cc"
 
 		isoCorrMap ecalIsoRhoCorrMap("phoPFClusEcalIso_PtCorrections.txt", 2);
 		isoCorrMap tkrIsoRhoCorrMap("phoTrkSumPtHollowConeDR03_RhoCorrections.txt", 2);
