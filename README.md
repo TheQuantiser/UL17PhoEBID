@@ -11,14 +11,22 @@
 		 R__LOAD_LIBRARY(path_to_xgboost/lib/libxgboost.so) 
 		 #include <path_to_xgboost/include/xgboost/c_api.h>
 
-4. Load the BDT model:
-
+4. Load the BDT model and isolation corrections:
+		
+		/// BDT
 	    DMatrixHandle 		dTest;
 	    BoosterHandle 		phoBDT_h;
 	    XGBoosterCreate(NULL, 0, &phoBDT_h); 
 	    XGBoosterSetParam(phoBDT_h, "seed", "0"); 
 	    Int_t mLdSuccess = XGBoosterLoadModel(phoBDT_h, "aNTGC_photon_BDT_EB_2021_08_26_09_39_52.model");
 	    if(mLdSuccess !=0) std::cout<<"Failed to load model"<<std::endl;
+
+	    /// Isolation corrections
+		#include "helpers.cc"
+
+		isoCorrMap ecalIsoRhoCorrMap("phoPFClusEcalIso_PtCorrections.txt", 2);
+		isoCorrMap tkrIsoRhoCorrMap("phoTrkSumPtHollowConeDR03_RhoCorrections.txt", 2);
+		isoCorrMap ecalIsoPtCorrMap("phoPFClusEcalIso_PtCorrections.txt", 2);
 
 5. Predict the BDT score per photon.
 
@@ -60,17 +68,9 @@
 				PAT::Photon::ecalPFClusterIso()
 				PAT::Photon::trkSumPtHollowConeDR03()
 
-	Load iso corrections:  
-
-				#include "helpers.cc"
-
-				isoCorrMap ecalIsoRhoCorrMap("phoPFClusEcalIso_PtCorrections.txt", 2);
-				isoCorrMap tkrIsoRhoCorrMap("phoTrkSumPtHollowConeDR03_RhoCorrections.txt", 2);
-				isoCorrMap ecalIsoPtCorrMap("phoPFClusEcalIso_PtCorrections.txt", 2);
-
 
 	Apply corrections:
-	
+
 				phoPFECALClusIsoCorr_      = phoPFClusEcalIso_ - ecalIsoRhoCorrMap.getIsoCorr(std::abs(_phoSCeta), rho_, 0) - ecalIsoPtCorrMap.getIsoCorr(std::abs(_phoSCeta), phoPt_, 1);
 				phoTkrIsoCorr_             = phoTrkSumPtHollowConeDR03_ - tkrIsoRhoCorrMap.getIsoCorr(std::abs(_phoSCeta), rho_, 1);
 	
