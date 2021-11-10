@@ -156,7 +156,7 @@ struct isoCorrMap {
 	void init(std::string _mapFile, Int_t fColumn = 3, Bool_t _verbose=1, std::string _delimiter=";", Int_t _firstLine = 0) {
 		if (!file_exists(_mapFile)) {
 			std::cout<<"\tError! Isolation map file "<< _mapFile<<" does not exist! "<<mapFile<<std::endl;
-			exit(EXIT_FAILURE);
+			return;
 		}
 
 		mapFile = _mapFile;
@@ -187,7 +187,7 @@ struct isoCorrMap {
 		std::map<Float_t, Float_t>::iterator iBinZero = zeroVals.lower_bound(absEta);
 
 		if (iBin == theMap.end()) {
-			// std::cout<<"Error! Eta "<<absEta<<" is outside range specified in map "<<mapFile<<std::endl;
+			std::cout<<"Error! Eta "<<absEta<<" is outside range specified in map "<<mapFile<<std::endl;
 			return 0.;
 		}
 		if (_keepZero) return iBin->second->Eval(sendaryEn);

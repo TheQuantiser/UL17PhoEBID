@@ -1,4 +1,6 @@
 ﻿
+**UL 2017 & 2018 High Pt Photon ID for EB**
+
 1. First, XGBoost has to be built either from source (https://xgboost.readthedocs.io/en/latest/build.html - version release_1.2.0 or higher) or using pip
 
 		 pip3/pip --user install xgboost
@@ -24,9 +26,9 @@
 
 	    /// Isolation corrections
 
-		isoCorrMap ecalIsoRhoCorrMap("phoPFClusEcalIso_PtCorrections.txt", 2);
-		isoCorrMap tkrIsoRhoCorrMap("phoTrkSumPtHollowConeDR03_RhoCorrections.txt", 2);
-		isoCorrMap ecalIsoPtCorrMap("phoPFClusEcalIso_PtCorrections.txt", 2);
+		isoCorrMap ecalIsoRhoCorrMap("PATH/phoPFClusEcalIso_PtCorrections.txt", 2);
+		isoCorrMap tkrIsoRhoCorrMap("PATH/phoTrkSumPtHollowConeDR03_RhoCorrections.txt", 2);
+		isoCorrMap ecalIsoPtCorrMap("PATH/phoPFClusEcalIso_PtCorrections.txt", 2);
 
 5. Predict the BDT score per photon.
 
@@ -54,7 +56,7 @@
 		XGBoosterPredict(phoBDT_h, dTest, 0, 0, 0, &out_len, &prediction);
 		assert(out_len == 1);
 		XGDMatrixFree(dTest);
-		Float_t phoBDTpred = prediction[0]; /// This is the prediciton
+		Float_t phoBDTpred_ = prediction[0]; /// This is the prediciton
 	
 	The shower shape variables can be extracted from these two methods of PAT::photon
 
@@ -63,18 +65,28 @@
 	
 	Refer to CMSSW documentation:				[full5x5_showerShapeVariables](https://cmsdoxygen.web.cern.ch/cmsdoxygen/CMSSW_10_6_24/doc/html/d0/d08/structreco_1_1Photon_1_1ShowerShape.html) and	[superCluster](https://cmsdoxygen.web.cern.ch/cmsdoxygen/CMSSW_10_6_24/doc/html/d2/de8/classreco_1_1SuperCluster.html)
 
-6. Apply corrections to these isolations:
+6. Apply pileup and pT corrections to these isolations:
 
 				PAT::Photon::ecalPFClusterIso()
 				PAT::Photon::trkSumPtHollowConeDR03()
 
+	Additional inputs for correction:
+				
+				rho_ 						: "fixedGridRhoFastjetAll"
+
+				phoPt_     					= PAT::Photon::et() * PAT::Photon::userFloat("ecalEnergyPostCorr") / PAT::Photon::energy());
+
+				phoAbsSCeta_				= PAT::Photon::superCluster()->eta();
+
 
 	Apply corrections:
 
-				phoPFECALClusIsoCorr_      = phoPFClusEcalIso_ - ecalIsoRhoCorrMap.getIsoCorr(std::abs(_phoSCeta), rho_, 0) - ecalIsoPtCorrMap.getIsoCorr(std::abs(_phoSCeta), phoPt_, 1);
-				phoTkrIsoCorr_             = phoTrkSumPtHollowConeDR03_ - tkrIsoRhoCorrMap.getIsoCorr(std::abs(_phoSCeta), rho_, 1);
+				phoPFECALClusIsoCorr_      	= phoPFClusEcalIso_ - ecalIsoRhoCorrMap.getIsoCorr(std::abs(_phoSCeta), rho_, 0) - ecalIsoPtCorrMap.getIsoCorr(std::abs(_phoSCeta), phoPt_, 1);
+				phoTkrIsoCorr_             	= phoTrkSumPtHollowConeDR03_ - tkrIsoRhoCorrMap.getIsoCorr(std::abs(_phoSCeta), rho_, 1);
 	
 
 7. Get ID decision:
 
-				passBDTid_ = (phoBDTpred_ > 0.92 && phoHoverE_ <  0.0346 &&  phoPFECALClusIsoCorr_ <  6.65 && phoTkrIsoCorr_ < 4.43);
+				**2017**: passBDTid_ = (phoBDTpred_ > 0.8361 && phoHoverE_ <  0.04012 &&  phoPFECALClusIsoCorr_ <  1.84 && phoTkrIsoCorr_ < 1.63);
+
+				**2018**: passBDTid_ = (phoBDTpred_ > 0.8466 && phoHoverE_ <  0.0402 &&  phoPFECALClusIsoCorr_ <  1.84 && phoTkrIsoCorr_ < 1.58);
