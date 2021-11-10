@@ -81,8 +81,8 @@
 
 	Apply corrections:
 
-				phoPFECALClusIsoCorr_      	= phoPFClusEcalIso_ - ecalIsoRhoCorrMap.getIsoCorr(std::abs(_phoSCeta), rho_, 0) - ecalIsoPtCorrMap.getIsoCorr(std::abs(_phoSCeta), phoPt_, 1);
-				phoTkrIsoCorr_             	= phoTrkSumPtHollowConeDR03_ - tkrIsoRhoCorrMap.getIsoCorr(std::abs(_phoSCeta), rho_, 1);
+				phoPFECALClusIsoCorr_      	= phoPFClusEcalIso_ - ecalIsoRhoCorrMap.getIsoCorr(phoAbsSCeta_, rho_, 0) - ecalIsoPtCorrMap.getIsoCorr(phoAbsSCeta_, phoPt_, 1);
+				phoTkrIsoCorr_             	= phoTrkSumPtHollowConeDR03_ - tkrIsoRhoCorrMap.getIsoCorr(phoAbsSCeta_, rho_, 1);
 	
 
 7. Get ID decision:
