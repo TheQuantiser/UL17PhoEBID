@@ -1,5 +1,5 @@
 ﻿
-**UL 2017 & 2018 High Pt Photon ID for EB**
+**UL 2016, 2017 & 2018 High Pt Photon ID for EB**
 
 1. First, XGBoost has to be built either from source (https://xgboost.readthedocs.io/en/latest/build.html - version release_1.2.0 or higher) or using pip
 
