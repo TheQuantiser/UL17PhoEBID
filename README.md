@@ -16,19 +16,31 @@
 
 4. Load the BDT model and isolation corrections:
 		
-		/// BDT
-	    DMatrixHandle 		dTest;
-	    BoosterHandle 		phoBDT_h;
-	    XGBoosterCreate(NULL, 0, &phoBDT_h); 
-	    XGBoosterSetParam(phoBDT_h, "seed", "0"); 
-	    Int_t mLdSuccess = XGBoosterLoadModel(phoBDT_h, "aNTGC_photon_BDT_EB_2021_08_26_09_39_52.model");
-	    if(mLdSuccess !=0) std::cout<<"Failed to load model"<<std::endl;
+		BDT needs to be loaded only once (no need to repeat for each event)
 
-	    /// Isolation corrections
+			2017/2018 BDT model file: aNTGC_photon_BDT_EB_2021_08_26_09_39_52.model
 
-		isoCorrMap ecalIsoRhoCorrMap("PATH/phoPFClusEcalIso_PtCorrections.txt", 2);
-		isoCorrMap tkrIsoRhoCorrMap("PATH/phoTrkSumPtHollowConeDR03_RhoCorrections.txt", 2);
-		isoCorrMap ecalIsoPtCorrMap("PATH/phoPFClusEcalIso_PtCorrections.txt", 2);
+			2016 BDT model file: aNTGC_photon_BDT_EB_2022_01_10_23_54_43.model
+			
+				    DMatrixHandle 		dTest;
+				    BoosterHandle 		phoBDT_h;
+				    XGBoosterCreate(NULL, 0, &phoBDT_h); 
+				    XGBoosterSetParam(phoBDT_h, "seed", "0"); 
+				    Int_t mLdSuccess = XGBoosterLoadModel(phoBDT_h, "");
+				    if(mLdSuccess !=0) std::cout<<"Failed to load model"<<std::endl;
+
+
+	    Isolation corrections
+
+		    For all years:
+				isoCorrMap ecalIsoRhoCorrMap("PATH/phoPFClusEcalIso_PtCorrections.txt", 2);
+				isoCorrMap ecalIsoPtCorrMap("PATH/phoPFClusEcalIso_PtCorrections.txt", 2);
+
+			For 2017/2018:
+				isoCorrMap tkrIsoRhoCorrMap("PATH/phoTrkSumPtHollowConeDR03_RhoCorrections.txt", 2);
+
+			For 2016:
+				isoCorrMap worstChHadIsoRhoCorrMap("PATH/phoPFChWorstIso_RhoCorrections.txt", 2);
 
 5. Predict the BDT score per photon.
 
@@ -66,11 +78,20 @@
 	Refer to CMSSW documentation:				[full5x5_showerShapeVariables](https://cmsdoxygen.web.cern.ch/cmsdoxygen/CMSSW_10_6_24/doc/html/d0/d08/structreco_1_1Photon_1_1ShowerShape.html) and	[superCluster](https://cmsdoxygen.web.cern.ch/cmsdoxygen/CMSSW_10_6_24/doc/html/d2/de8/classreco_1_1SuperCluster.html)
 
 6. Apply pileup and pT corrections to these isolations:
+				
+		ECAL isolation:
+			phoPFClusEcalIso_ = PAT::Photon::ecalPFClusterIso()
 
-				PAT::Photon::ecalPFClusterIso()
-				PAT::Photon::trkSumPtHollowConeDR03()
+		Two different tracker isolations:
+			
+			For 2017/2018
+				phoTrkSumPtHollowConeDR03_ = PAT::Photon::trkSumPtHollowConeDR03()
 
-	Additional inputs for correction:
+			For 2016 
+				worstChHadIso_ 			   = PAT::Photon::chargedHadronWorstVtxIso() 
+
+
+		Additional inputs for correction:
 				
 				rho_ 						: "fixedGridRhoFastjetAll"
 
@@ -79,13 +100,21 @@
 				phoAbsSCeta_				= PAT::Photon::superCluster()->eta();
 
 
-	Apply corrections:
+		Apply corrections:
 
-				phoPFECALClusIsoCorr_      	= phoPFClusEcalIso_ - ecalIsoRhoCorrMap.getIsoCorr(phoAbsSCeta_, rho_, 0) - ecalIsoPtCorrMap.getIsoCorr(phoAbsSCeta_, phoPt_, 1);
-				phoTkrIsoCorr_             	= phoTrkSumPtHollowConeDR03_ - tkrIsoRhoCorrMap.getIsoCorr(phoAbsSCeta_, rho_, 1);
+				For all years:
+					phoPFECALClusIsoCorr_      	= phoPFClusEcalIso_ - ecalIsoRhoCorrMap.getIsoCorr(phoAbsSCeta_, rho_, 0) - ecalIsoPtCorrMap.getIsoCorr(phoAbsSCeta_, phoPt_, 1);
+				
+				For 2017/2018:
+					phoTkrIsoCorr_             	= phoTrkSumPtHollowConeDR03_ - tkrIsoRhoCorrMap.getIsoCorr(phoAbsSCeta_, rho_, 1);
+				
+				For 2016 only:
+					worstChHadIsoCorr_          = worstChHadIso_ - worstChHadIsoRhoCorrMap.getIsoCorr(phoAbsSCeta_, rho_, 1);
 	
 
 7. Get ID decision:
+
+				**2016**: passBDTid_ = (phoBDTpred_ > 0.8493 && phoHoverE_ <  0.0222 &&  phoPFECALClusIsoCorr92_ <  2.16 && worstChHadIsoCorr_ < 2.19);
 
 				**2017**: passBDTid_ = (phoBDTpred_ > 0.8361 && phoHoverE_ <  0.04012 &&  phoPFECALClusIsoCorr_ <  1.84 && phoTkrIsoCorr_ < 1.63);
 
