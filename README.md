@@ -32,6 +32,9 @@
 
 	    Isolation corrections
 
+			For all years:
+					phoPFECALClusIsoCorr_      	= phoPFClusEcalIso_ - ecalIsoRhoCorrMap.getIsoCorr(phoAbsSCeta_, rho_, 0) - ecalIsoPtCorrMap.getIsoCorr(phoAbsSCeta_, phoPt_, 1);
+					
 			For 2017/2018:
 				isoCorrMap tkrIsoRhoCorrMap("PATH/phoTrkSumPtHollowConeDR03_RhoCorrections.txt", 2);
 
