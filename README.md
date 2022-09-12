@@ -26,7 +26,7 @@
 				    BoosterHandle 		phoBDT_h;
 				    XGBoosterCreate(NULL, 0, &phoBDT_h); 
 				    XGBoosterSetParam(phoBDT_h, "seed", "0"); 
-				    Int_t mLdSuccess = XGBoosterLoadModel(phoBDT_h, "");
+				    Int_t mLdSuccess = XGBoosterLoadModel(phoBDT_h, "BDT_model_path");
 				    if(mLdSuccess !=0) std::cout<<"Failed to load model"<<std::endl;
 
 
