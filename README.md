@@ -32,10 +32,6 @@
 
 	    Isolation corrections
 
-		    For all years:
-				isoCorrMap ecalIsoRhoCorrMap("PATH/phoPFClusEcalIso_PtCorrections.txt", 2);
-				isoCorrMap ecalIsoPtCorrMap("PATH/phoPFClusEcalIso_PtCorrections.txt", 2);
-
 			For 2017/2018:
 				isoCorrMap tkrIsoRhoCorrMap("PATH/phoTrkSumPtHollowConeDR03_RhoCorrections.txt", 2);
 
