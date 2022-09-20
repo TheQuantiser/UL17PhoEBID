@@ -43,22 +43,22 @@
 
 5. Predict the BDT score per photon.
 
-		std::vector<Float_t> feats{_phoE2x2Full5x5[iPho] / (_phoR9Full5x5[iPho] * _ecalSC_RawEn[phoSCindex]),
+		std::vector<Float_t> feats{_phoE2x2Full5x5 / (_phoR9Full5x5 * _ecalSC_RawEn),
 		                               std::abs(_phoSCeta),
-		                               _phoE1x3Full5x5[iPho] / _ecalSC_RawEn[phoSCindex],
-		                               _phoE2ndFull5x5[iPho] / _ecalSC_RawEn[phoSCindex],
-		                               _phoE2x5Full5x5[iPho] / _ecalSC_RawEn[phoSCindex],
-		                               _phoMaxEnergyXtal[iPho] / _ecalSC_RawEn[phoSCindex],
-		                               _ecalSC_etaWidth[phoSCindex] / _ecalSC_phiWidth[phoSCindex],
-		                               _ecalSC_etaWidth[phoSCindex],
-		                               _ecalSC_phiWidth[phoSCindex],
-		                               _phoCalibEt[phoSCindex],
-		                               _phoR9Full5x5[iPho],
-		                               _phoE2x2Full5x5[iPho] / _ecalSC_RawEn[phoSCindex],
-		                               _phoSigmaIEtaIEtaFull5x5[iPho] / _phoSigmaIPhiIPhiFull5x5[iPho],
-		                               _phoSigmaIEtaIEtaFull5x5[iPho],
-		                               _phoSigmaIEtaIPhiFull5x5[iPho],
-		                               _phoSigmaIPhiIPhiFull5x5[iPho]};
+		                               _phoE1x3Full5x5 / _ecalSC_RawEn,
+		                               _phoE2ndFull5x5 / _ecalSC_RawEn,
+		                               _phoE2x5Full5x5 / _ecalSC_RawEn,
+		                               _phoMaxEnergyXtal / _ecalSC_RawEn,
+		                               _ecalSC_etaWidth / _ecalSC_phiWidth,
+		                               _ecalSC_etaWidth,
+		                               _ecalSC_phiWidth,
+		                               _phoCalibEt,
+		                               _phoR9Full5x5,
+		                               _phoE2x2Full5x5 / _ecalSC_RawEn,
+		                               _phoSigmaIEtaIEtaFull5x5 / _phoSigmaIPhiIPhiFull5x5,
+		                               _phoSigmaIEtaIEtaFull5x5,
+		                               _phoSigmaIEtaIPhiFull5x5,
+		                               _phoSigmaIPhiIPhiFull5x5};
 
 
 		XGDMatrixCreateFromMat((float*)feats.data(), 1, feats.size(), -9999999999, &dTest);
