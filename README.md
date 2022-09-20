@@ -30,10 +30,11 @@
 				    if(mLdSuccess !=0) std::cout<<"Failed to load model"<<std::endl;
 
 
-	    Isolation corrections
+	    Pileup and pT corrections for isolation (ECAL iso and tracker/worst charged hadron iso)
 
 			For all years:
-					phoPFECALClusIsoCorr_      	= phoPFClusEcalIso_ - ecalIsoRhoCorrMap.getIsoCorr(phoAbsSCeta_, rho_, 0) - ecalIsoPtCorrMap.getIsoCorr(phoAbsSCeta_, phoPt_, 1);
+					isoCorrMap  ecalIsoRhoCorrMap92("PATH/phoPFClusEcalIso_RhoCorrections.txt", 2);
+					isoCorrMap  ecalIsoPtCorrMap92("PATH/phoPFClusEcalIso_PtCorrections.txt", 2);
 					
 			For 2017/2018:
 				isoCorrMap tkrIsoRhoCorrMap("PATH/phoTrkSumPtHollowConeDR03_RhoCorrections.txt", 2);
