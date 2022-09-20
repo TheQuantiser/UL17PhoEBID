@@ -96,7 +96,7 @@
 
 				phoPt_     					= PAT::Photon::et() * PAT::Photon::userFloat("ecalEnergyPostCorr") / PAT::Photon::energy());
 
-				phoAbsSCeta_				= PAT::Photon::superCluster()->eta();
+				phoAbsSCeta_				= std::abs(PAT::Photon::superCluster()->eta());
 
 
 		Apply corrections:
